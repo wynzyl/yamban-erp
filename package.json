@@ -1,0 +1,45 @@
+{
+  "name": "yamban",
+  "private": true,
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --filter=@yamban/*",
+    "dev:api": "turbo run dev --filter=@yamban/shared --filter=@yamban/api",
+    "dev:web": "turbo run dev --filter=@yamban/shared --filter=@yamban/web",
+    "build": "turbo run build --filter=@yamban/*",
+    "typecheck": "turbo run typecheck --filter=@yamban/*",
+    "lint": "turbo run lint --filter=@yamban/*",
+    "test": "turbo run test --filter=@yamban/*",
+    "format": "prettier --write .",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @yamban/api db:generate",
+    "db:migrate": "pnpm --filter @yamban/api db:migrate",
+    "db:seed": "pnpm --filter @yamban/api db:seed",
+    "db:studio": "pnpm --filter @yamban/api db:studio",
+    "check:ui": "pnpm --filter @yamban/web check:ui"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.11.6",
+    "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "@knaadh/nestjs-drizzle-postgres": "^1.2.0",
+    "@modelcontextprotocol/core": "^2.2.0",
+    "@modelcontextprotocol/node": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.2.0",
+    "@nestjs/microservices": "^12.1.2",
+    "@rekog/mcp-nest": "^2.0.7",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,164 @@
+/*
+ * Yamban Shop System tokens (guideline v0.1).
+ * This file is the only place colours are written as hex. Components use
+ * Tailwind utilities generated from the @theme block below, so a palette
+ * change is a one-line edit here. Run `pnpm check:ui` after editing.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* Guideline: dark theme is selected by [data-theme="dark"], not per-element overrides. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  --background: #f3f5f6; /* Polydex white */
+  --foreground: #15191b; /* Press ink */
+  --card: #ffffff;
+  --card-foreground: #15191b;
+  --popover: #ffffff;
+  --popover-foreground: #15191b;
+  --muted: #e6eaec; /* Cutting table */
+  --muted-foreground: #505c62;
+  --border: #d3dade;
+  --input: #c3ccd1;
+  --ring: #0a5c7a;
+
+  --primary: #0a5c7a; /* Cyan ink */
+  --primary-foreground: #ffffff;
+  --secondary: #e6eaec;
+  --secondary-foreground: #15191b;
+  --accent: #e6eaec;
+  --accent-foreground: #15191b;
+
+  --partial: #f2c230; /* Tape yellow: down payment received, low stock */
+  --partial-foreground: #15191b;
+  --partial-text: #785800; /* tape yellow is 1.53:1 as text, so text uses this */
+  --success: #1e6b3a; /* Ledger green: fully paid */
+  --success-foreground: #ffffff;
+  --destructive: #b3261e; /* Red chalk: overdue, negative net, out of stock */
+  --destructive-foreground: #ffffff;
+
+  /* Magenta ink. Logo, receipt header, printed job ticket only. Not mapped to Tailwind. */
+  --brand-magenta: #b0125b;
+
+  --yb-font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --yb-font-body: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+[data-theme='dark'] {
+  /* Surfaces lift by value as they come forward, instead of gaining shadows. */
+  --background: #101517;
+  --foreground: #e8edef;
+  --card: #182024;
+  --card-foreground: #e8edef;
+  --popover: #182024;
+  --popover-foreground: #e8edef;
+  --muted: #212a2f;
+  --muted-foreground: #9ba9af;
+  --border: #2c373d;
+  --input: #3a474e;
+  --ring: #5bbad6;
+
+  --primary: #5bbad6;
+  --primary-foreground: #101517;
+  --secondary: #212a2f;
+  --secondary-foreground: #e8edef;
+  --accent: #212a2f;
+  --accent-foreground: #e8edef;
+
+  --partial: #e8b931;
+  --partial-foreground: #101517;
+  --partial-text: #e8b931;
+  --success: #5cbf7e;
+  --success-foreground: #101517;
+  --destructive: #f2776c;
+  --destructive-foreground: #101517;
+
+  --brand-magenta: #e05596;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-partial: var(--partial);
+  --color-partial-foreground: var(--partial-foreground);
+  --color-partial-text: var(--partial-text);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  /* --brand-magenta intentionally omitted. Use .yb-mark. */
+
+  --font-display: var(--yb-font-display);
+  --font-sans: var(--yb-font-body);
+}
+
+@theme {
+  /* Two radii: controls (inputs, buttons, chips) and surfaces (panels, tables). */
+  --radius-control: 0.375rem;
+  --radius-surface: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+  }
+  html[data-theme='dark'] {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Every peso is typeset the same way: Plex Sans (tabular by default), never Barlow (no ₱ glyph). */
+  .yb-money {
+    font-family: var(--yb-font-body);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .yb-money.neg {
+    color: var(--destructive);
+  }
+  .yb-measure {
+    font-family: var(--yb-font-body);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  /* The only way magenta reaches the screen. Allowlisted files only (scripts/check-ui.sh). */
+  .yb-mark {
+    color: var(--brand-magenta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

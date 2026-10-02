@@ -1,0 +1,50 @@
+/* Yamban Shop System: design tokens. Single source of truth.
+   Light = Polydex white + press ink.  Dark = cured-ink canvas.
+   Every pair below is measured by contrast.py (see contrast-report.txt). */
+:root {
+  --background: #F3F5F6;            /* Polydex white: the fabric before it is printed */
+  --card: #FFFFFF;
+  --muted: #E6EAEC;
+  --border: #CBD3D7;
+  --foreground: #15191B;            /* press ink */
+  --muted-foreground: #535C62;
+  --primary: #0A5C7A;               /* sublimation cyan, deepened to carry text */
+  --primary-foreground: #FFFFFF;
+  --partial: #F2C230;               /* tailor's tape yellow: down payment in, balance open */
+  --partial-foreground: #2A2105;
+  --partial-text: #7A5800;          /* partial used AS TEXT (balance due amounts) */
+  --success: #1E6B3A;               /* ledger green: fully paid, roll healthy */
+  --success-foreground: #FFFFFF;
+  --destructive: #B3261E;           /* red chalk: overdue, negative net, out of stock */
+  --destructive-foreground: #FFFFFF;
+  --ring: var(--primary);
+  --brand-magenta: #B0125B;         /* LOGO + PRINT ONLY. No utility class. See .yb-mark */
+  --radius-control: 6px;
+  --radius-surface: 10px;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif-condensed, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #101517; --card: #182024; --muted: #212A2F; --border: #33414A;
+    --foreground: #E8EDEF; --muted-foreground: #9CA8AF;
+    --primary: #5BBAD6; --primary-foreground: #06222D;
+    --partial: #E8B931; --partial-foreground: #231A02; --partial-text: #E8B931;
+    --success: #5CBF7E; --success-foreground: #0B2414;
+    --destructive: #F2776C; --destructive-foreground: #2B0805;
+    --brand-magenta: #E05596;
+  }
+}
+:root[data-theme="dark"] {
+  --background: #101517; --card: #182024; --muted: #212A2F; --border: #33414A;
+  --foreground: #E8EDEF; --muted-foreground: #9CA8AF;
+  --primary: #5BBAD6; --primary-foreground: #06222D;
+  --partial: #E8B931; --partial-foreground: #231A02; --partial-text: #E8B931;
+  --success: #5CBF7E; --success-foreground: #0B2414;
+  --destructive: #F2776C; --destructive-foreground: #2B0805;
+  --brand-magenta: #E05596;
+}
+/* The only sanctioned way to use magenta in the app. */
+.yb-mark { color: var(--brand-magenta); }
+/* Money and measures: tabular by default in Plex Sans; never set in Barlow (no ₱ glyph). */
+.yb-money, .yb-measure { font-family: var(--font-body); font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
