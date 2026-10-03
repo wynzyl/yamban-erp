@@ -1,5 +1,5 @@
-import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, type OrderStatus, type PaymentMethod } from '@yamban/shared';
-import { ArrowLeft, Calendar, Edit, Package, Plus, User } from 'lucide-react';
+import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
+import { ArrowLeft, Calendar, Edit, ExternalLink, Package, Palette, Plus, User } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -52,6 +52,16 @@ interface Payment {
   createdAt: string;
 }
 
+interface ProductionJob {
+  id: string;
+  orderItemId: string;
+  stage: ProductionStage;
+  sequence: number;
+  status: string;
+  designJobId: string | null;
+  designApprovalStatus: string | null;
+}
+
 interface OrderDetail {
   id: string;
   orderNumber: string;
@@ -74,6 +84,7 @@ interface OrderDetail {
   updatedAt: string;
   items: OrderItem[];
   payments: Payment[];
+  productionJobs: ProductionJob[];
 }
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -271,6 +282,58 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </dl>
         </div>
       </Surface>
+
+      {/* Production Status */}
+      {order.productionJobs.length > 0 && (
+        <Surface className="mt-6 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <h2 className="font-medium">Production</h2>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item</TableHead>
+                <TableHead>Stage</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {order.items.map((item) => {
+                const itemJobs = order.productionJobs.filter((j) => j.orderItemId === item.id);
+                return itemJobs.map((job, idx) => (
+                  <TableRow key={job.id}>
+                    {idx === 0 && (
+                      <TableCell rowSpan={itemJobs.length} className="align-top">
+                        <span className="font-medium">{item.productName}</span>
+                      </TableCell>
+                    )}
+                    <TableCell>{PRODUCTION_STAGE_LABELS[job.stage]}</TableCell>
+                    <TableCell>
+                      {job.stage === 'DESIGN' && job.designApprovalStatus ? (
+                        <span className="text-muted-foreground">{job.designApprovalStatus}</span>
+                      ) : (
+                        <span className="text-muted-foreground">{job.status}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {job.stage === 'DESIGN' && job.designJobId && (
+                        <Link
+                          href={`/production/design/${job.designJobId}`}
+                          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                        >
+                          <Palette className="size-3.5" />
+                          View
+                        </Link>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ));
+              })}
+            </TableBody>
+          </Table>
+        </Surface>
+      )}
 
       {/* Payments */}
       <Surface className="mt-6 overflow-hidden">

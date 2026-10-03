@@ -137,7 +137,7 @@ export class OrdersService {
     return { items: rows, page: q.page, pageSize: q.pageSize, total };
   }
 
-  async get(id: string): Promise<OrderDetailRow & { items: OrderItemDetail[]; payments: PaymentRow[] }> {
+  async get(id: string): Promise<OrderDetailRow & { items: OrderItemDetail[]; payments: PaymentRow[]; productionJobs: ProductionJobRow[] }> {
     const [order] = await this.db
       .select({
         id: orders.id,
@@ -220,7 +220,28 @@ export class OrdersService {
       .where(eq(payments.orderId, id))
       .orderBy(desc(payments.paymentDate));
 
-    return { ...order, items, payments: paymentsRaw };
+    // Get production jobs (if order is confirmed or beyond)
+    const prodJobs: ProductionJobRow[] = [];
+    if (order.status !== 'QUOTATION') {
+      const jobsRaw = await this.db
+        .select({
+          id: productionJobs.id,
+          orderItemId: productionJobs.orderItemId,
+          stage: productionJobs.stage,
+          sequence: productionJobs.sequence,
+          status: productionJobs.status,
+          designJobId: designJobs.id,
+          designApprovalStatus: designJobs.approvalStatus,
+        })
+        .from(productionJobs)
+        .leftJoin(designJobs, eq(designJobs.productionJobId, productionJobs.id))
+        .where(eq(productionJobs.orderId, id))
+        .orderBy(asc(productionJobs.orderItemId), asc(productionJobs.sequence));
+
+      prodJobs.push(...jobsRaw);
+    }
+
+    return { ...order, items, payments: paymentsRaw, productionJobs: prodJobs };
   }
 
   async create(data: CreateOrderData, userId: string) {
@@ -425,4 +446,14 @@ export interface PaymentRow {
   reference: string | null;
   notes: string | null;
   createdAt: Date;
+}
+
+export interface ProductionJobRow {
+  id: string;
+  orderItemId: string;
+  stage: string;
+  sequence: number;
+  status: string;
+  designJobId: string | null;
+  designApprovalStatus: string | null;
 }
