@@ -1,15 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { CreateOrderData, ListQuery, OrderStatus, Paginated, UpdateOrderData } from '@yamban/shared';
+import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
   customers,
+  designJobs,
   orderItems,
   orderItemSizes,
   orders,
   organizations,
   payments,
+  productionJobs,
   products,
 } from '../db/schema/index.js';
 
@@ -341,6 +344,44 @@ export class OrdersService {
       if (data.status === 'CONFIRMED') {
         updates.confirmedAt = new Date();
       }
+    }
+
+    // When confirming, create production jobs in a transaction
+    if (data.status === 'CONFIRMED' && existing.status === 'QUOTATION') {
+      return await this.db.transaction(async (tx) => {
+        const [updated] = await tx.update(orders).set(updates).where(eq(orders.id, id)).returning();
+
+        // Fetch all order items
+        const items = await tx
+          .select({ id: orderItems.id, quantity: orderItems.quantity })
+          .from(orderItems)
+          .where(eq(orderItems.orderId, id));
+
+        // Create production jobs for each item and stage
+        for (const item of items) {
+          for (const [i, stage] of PRODUCTION_STAGES.entries()) {
+            const [job] = await tx
+              .insert(productionJobs)
+              .values({
+                orderId: id,
+                orderItemId: item.id,
+                stage,
+                sequence: i + 1,
+                plannedQuantity: item.quantity,
+              })
+              .returning();
+
+            // For DESIGN stage, also create a design_jobs row
+            if (stage === 'DESIGN' && job) {
+              await tx.insert(designJobs).values({
+                productionJobId: job.id,
+              });
+            }
+          }
+        }
+
+        return updated!;
+      });
     }
 
     const [updated] = await this.db.update(orders).set(updates).where(eq(orders.id, id)).returning();
