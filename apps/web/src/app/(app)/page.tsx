@@ -13,6 +13,7 @@ interface DashboardCounts {
   printing: number;
   heatPress: number;
   sewing: number;
+  packaging: number;
   ready: number;
 }
 
@@ -24,7 +25,8 @@ export default async function DashboardPage() {
     counts.design.ready +
     counts.printing +
     counts.heatPress +
-    counts.sewing;
+    counts.sewing +
+    counts.packaging;
 
   return (
     <div className="max-w-5xl">

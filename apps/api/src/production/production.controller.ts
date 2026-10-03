@@ -33,4 +33,14 @@ export class ProductionController {
   complete(@Param('id') id: string) {
     return this.production.completeJob(id);
   }
+
+  @Get('ready')
+  readyOrders() {
+    return this.production.listReadyOrders();
+  }
+
+  @Patch('orders/:id/release')
+  release(@Param('id') id: string) {
+    return this.production.releaseOrder(id);
+  }
 }

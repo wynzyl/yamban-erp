@@ -6,6 +6,8 @@ import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
   customers,
+  designFiles,
+  designJobs,
   orderItems,
   orderItemSizes,
   orderRoster,
@@ -19,6 +21,13 @@ export interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+}
+
+export interface DesignFileInfo {
+  id: string;
+  fileName: string;
+  storageKey: string;
+  isFinal: boolean;
 }
 
 export interface StageJobRow {
@@ -36,6 +45,7 @@ export interface StageJobRow {
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
+  designFile: DesignFileInfo | null;
 }
 
 export interface DashboardCounts {
@@ -43,7 +53,21 @@ export interface DashboardCounts {
   printing: number;
   heatPress: number;
   sewing: number;
+  packaging: number;
   ready: number;
+}
+
+export interface ReadyOrderRow {
+  id: string;
+  orderNumber: string;
+  customerId: string;
+  customerName: string;
+  totalQuantity: number;
+  total: string;
+  paid: string;
+  balance: string;
+  dueDate: string | null;
+  completedAt: string | null;
 }
 
 @Injectable()
@@ -52,24 +76,32 @@ export class ProductionService {
 
   /** List jobs for a specific production stage */
   async listByStage(stage: ProductionStage): Promise<StageJobRow[]> {
-    // For PRINTING: only include jobs where DESIGN stage is COMPLETED
-    // For other stages: include jobs where previous stage is COMPLETED or job itself is active
+    // Only include jobs where:
+    // 1. The previous stage is COMPLETED (job is ready to work on)
+    // 2. The current stage is NOT COMPLETED (job hasn't moved on yet)
     let stageFilter;
 
-    if (stage === 'PRINTING') {
-      // Jobs for PRINTING where DESIGN is completed
+    const stageIndex = PRODUCTION_STAGES.indexOf(stage);
+    const previousStage = stageIndex > 0 ? PRODUCTION_STAGES[stageIndex - 1] : null;
+
+    if (previousStage) {
+      // Jobs for this stage where previous stage is completed and current is not completed
       stageFilter = and(
-        eq(productionJobs.stage, 'PRINTING'),
+        eq(productionJobs.stage, stage),
+        sql`${productionJobs.status} != 'COMPLETED'`,
         sql`EXISTS (
           SELECT 1 FROM production_jobs pj2
           WHERE pj2.order_item_id = ${productionJobs.orderItemId}
-          AND pj2.stage = 'DESIGN'
+          AND pj2.stage = ${previousStage}
           AND pj2.status = 'COMPLETED'
         )`,
       );
     } else {
-      // For other stages, show all jobs in that stage
-      stageFilter = eq(productionJobs.stage, stage);
+      // DESIGN stage has no previous stage, but still exclude completed
+      stageFilter = and(
+        eq(productionJobs.stage, stage),
+        sql`${productionJobs.status} != 'COMPLETED'`,
+      );
     }
 
     const rows = await this.db
@@ -123,6 +155,35 @@ export class ProductionService {
         .from(orderRoster)
         .where(eq(orderRoster.orderItemId, row.orderItemId));
 
+      // Get final design file for this order item (via design job)
+      let designFile: DesignFileInfo | null = null;
+      const [designFileData] = await this.db
+        .select({
+          id: designFiles.id,
+          fileName: designFiles.fileName,
+          storageKey: designFiles.storageKey,
+          isFinal: designFiles.isFinal,
+        })
+        .from(designFiles)
+        .innerJoin(designJobs, eq(designJobs.id, designFiles.designJobId))
+        .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
+        .where(
+          and(
+            eq(productionJobs.orderItemId, row.orderItemId),
+            eq(designFiles.isFinal, true),
+          ),
+        )
+        .limit(1);
+
+      if (designFileData) {
+        designFile = {
+          id: designFileData.id,
+          fileName: designFileData.fileName,
+          storageKey: designFileData.storageKey,
+          isFinal: designFileData.isFinal,
+        };
+      }
+
       const customerName = [row.customerFirstName, row.customerLastName]
         .filter(Boolean)
         .join(' ');
@@ -146,6 +207,7 @@ export class ProductionService {
           jerseyNumber: r.jerseyNumber,
           size: r.size,
         })),
+        designFile,
       });
     }
 
@@ -209,6 +271,21 @@ export class ProductionService {
       ),
     );
 
+    // Packaging: jobs where SEWING is completed and PACKAGING is not completed
+    const packaging = await this.db.$count(
+      productionJobs,
+      and(
+        eq(productionJobs.stage, 'PACKAGING'),
+        sql`${productionJobs.status} != 'COMPLETED'`,
+        sql`EXISTS (
+          SELECT 1 FROM production_jobs pj2
+          WHERE pj2.order_item_id = ${productionJobs.orderItemId}
+          AND pj2.stage = 'SEWING'
+          AND pj2.status = 'COMPLETED'
+        )`,
+      ),
+    );
+
     // Ready: PACKAGING stage completed
     const ready = await this.db.$count(
       productionJobs,
@@ -220,6 +297,7 @@ export class ProductionService {
       printing,
       heatPress,
       sewing,
+      packaging,
       ready,
     };
   }
@@ -278,6 +356,7 @@ export class ProductionService {
         stage: productionJobs.stage,
         status: productionJobs.status,
         orderItemId: productionJobs.orderItemId,
+        orderId: productionJobs.orderId,
       })
       .from(productionJobs)
       .where(eq(productionJobs.id, jobId))
@@ -319,6 +398,174 @@ export class ProductionService {
           ),
         );
     }
+
+    // If PACKAGING (last stage) completed, check if all items are packaged
+    // and update order status to READY
+    if (job.stage === 'PACKAGING') {
+      // Count total PACKAGING jobs for this order
+      const [totalCount] = await this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(productionJobs)
+        .where(
+          and(
+            eq(productionJobs.orderId, job.orderId),
+            eq(productionJobs.stage, 'PACKAGING'),
+          ),
+        );
+
+      // Count completed PACKAGING jobs for this order
+      const [completedCount] = await this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(productionJobs)
+        .where(
+          and(
+            eq(productionJobs.orderId, job.orderId),
+            eq(productionJobs.stage, 'PACKAGING'),
+            eq(productionJobs.status, 'COMPLETED'),
+          ),
+        );
+
+      // If all packaging jobs are completed, update order status to READY
+      if (totalCount?.count === completedCount?.count) {
+        await this.db
+          .update(orders)
+          .set({ status: 'READY' })
+          .where(
+            and(
+              eq(orders.id, job.orderId),
+              eq(orders.status, 'IN_PRODUCTION'),
+            ),
+          );
+      }
+    }
+
+    return { success: true };
+  }
+
+  /** List orders ready for pickup (all PACKAGING jobs completed, not yet released) */
+  async listReadyOrders(): Promise<ReadyOrderRow[]> {
+    // Get orders where all PACKAGING jobs are COMPLETED and order is not RELEASED/CANCELLED
+    // This includes both READY status and IN_PRODUCTION (for backwards compatibility)
+    const rows = await this.db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerId: customers.id,
+        customerFirstName: customers.firstName,
+        customerLastName: customers.lastName,
+        total: orders.total,
+        dueDate: orders.dueDate,
+        status: orders.status,
+      })
+      .from(orders)
+      .innerJoin(customers, eq(customers.id, orders.customerId))
+      .where(
+        and(
+          sql`${orders.status} NOT IN ('RELEASED', 'CANCELLED', 'QUOTATION')`,
+          // All PACKAGING jobs for this order must be COMPLETED
+          sql`NOT EXISTS (
+            SELECT 1 FROM production_jobs pj
+            WHERE pj.order_id = ${orders.id}
+            AND pj.stage = 'PACKAGING'
+            AND pj.status != 'COMPLETED'
+          )`,
+          // Must have at least one PACKAGING job (confirmed orders)
+          sql`EXISTS (
+            SELECT 1 FROM production_jobs pj
+            WHERE pj.order_id = ${orders.id}
+            AND pj.stage = 'PACKAGING'
+          )`,
+        ),
+      );
+
+    const result: ReadyOrderRow[] = [];
+
+    for (const row of rows) {
+      // Get total quantity for this order
+      const [qtyResult] = await this.db
+        .select({ total: sql<number>`COALESCE(SUM(${orderItems.quantity}), 0)` })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, row.id));
+
+      // Get the latest packaging completion time
+      const [completionResult] = await this.db
+        .select({ completedAt: sql<string>`MAX(${productionJobs.completedAt})` })
+        .from(productionJobs)
+        .where(
+          and(
+            eq(productionJobs.orderId, row.id),
+            eq(productionJobs.stage, 'PACKAGING'),
+            eq(productionJobs.status, 'COMPLETED'),
+          ),
+        );
+
+      // Calculate total paid
+      const [paidResult] = await this.db
+        .select({ paid: sql<string>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .where(eq(payments.orderId, row.id));
+
+      const totalNum = parseFloat(row.total);
+      const paidNum = parseFloat(paidResult?.paid ?? '0');
+      const balanceNum = totalNum - paidNum;
+
+      const customerName = [row.customerFirstName, row.customerLastName]
+        .filter(Boolean)
+        .join(' ');
+
+      result.push({
+        id: row.id,
+        orderNumber: row.orderNumber,
+        customerId: row.customerId,
+        customerName,
+        totalQuantity: Number(qtyResult?.total ?? 0),
+        total: row.total,
+        paid: paidNum.toFixed(2),
+        balance: balanceNum.toFixed(2),
+        dueDate: row.dueDate,
+        completedAt: completionResult?.completedAt ?? null,
+      });
+    }
+
+    return result;
+  }
+
+  /** Mark an order as delivered (released) */
+  async releaseOrder(orderId: string) {
+    const [order] = await this.db
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) throw new NotFoundException('Order not found.');
+
+    // Allow release from READY, IN_PRODUCTION, or CONFIRMED (if all packaging is done)
+    const releasableStatuses = ['READY', 'IN_PRODUCTION', 'CONFIRMED'];
+    if (!releasableStatuses.includes(order.status)) {
+      throw new BadRequestException('Order cannot be released from current status.');
+    }
+
+    // Verify all packaging jobs are completed
+    const [incompletePackaging] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(productionJobs)
+      .where(
+        and(
+          eq(productionJobs.orderId, orderId),
+          eq(productionJobs.stage, 'PACKAGING'),
+          sql`${productionJobs.status} != 'COMPLETED'`,
+        ),
+      );
+
+    if ((incompletePackaging?.count ?? 0) > 0) {
+      throw new BadRequestException('All items must be packaged before releasing.');
+    }
+
+    await this.db
+      .update(orders)
+      .set({ status: 'RELEASED' })
+      .where(eq(orders.id, orderId));
 
     return { success: true };
   }

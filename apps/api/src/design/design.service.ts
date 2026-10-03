@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import type { JobStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -95,7 +95,16 @@ export class DesignService {
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(products, eq(products.id, orderItems.productId))
       .leftJoin(assignee, eq(assignee.id, productionJobs.assignedToId))
-      .leftJoin(fileExists, eq(fileExists.designJobId, designJobs.id));
+      .leftJoin(fileExists, eq(fileExists.designJobId, designJobs.id))
+      .where(
+        // Exclude jobs where PRINTING has already started or completed
+        sql`NOT EXISTS (
+          SELECT 1 FROM production_jobs pj2
+          WHERE pj2.order_item_id = ${productionJobs.orderItemId}
+          AND pj2.stage = 'PRINTING'
+          AND pj2.status IN ('IN_PROGRESS', 'COMPLETED')
+        )`,
+      );
 
     const board: DesignBoard = {
       pending: [],

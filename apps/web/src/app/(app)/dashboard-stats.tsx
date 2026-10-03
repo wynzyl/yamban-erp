@@ -1,4 +1,4 @@
-import { Palette, Printer, Flame, Scissors, Package } from 'lucide-react';
+import { Palette, Printer, Flame, Scissors, Box, Truck } from 'lucide-react';
 import Link from 'next/link';
 
 interface DashboardCounts {
@@ -6,6 +6,7 @@ interface DashboardCounts {
   printing: number;
   heatPress: number;
   sewing: number;
+  packaging: number;
   ready: number;
 }
 
@@ -48,10 +49,18 @@ const stages = [
     getDetail: () => null,
   },
   {
+    key: 'packaging',
+    label: 'Packaging',
+    href: '/production/packaging',
+    icon: Box,
+    getCount: (c: DashboardCounts) => c.packaging,
+    getDetail: () => null,
+  },
+  {
     key: 'ready',
     label: 'Ready for pickup',
     href: '/production/ready',
-    icon: Package,
+    icon: Truck,
     getCount: (c: DashboardCounts) => c.ready,
     getDetail: () => null,
   },
@@ -59,7 +68,7 @@ const stages = [
 
 export function DashboardStats({ counts }: DashboardStatsProps) {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-6">
       {stages.map((stage) => {
         const Icon = stage.icon;
         const count = stage.getCount(counts);
