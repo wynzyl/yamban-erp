@@ -3,11 +3,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
+import sharp from 'sharp';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { designFiles, designJobs } from '../db/schema/index.js';
 
 const UPLOADS_DIR = join(process.cwd(), 'uploads');
+
+// Image mimetypes that should be converted to WebP
+const IMAGE_MIMETYPES = ['image/png', 'image/jpeg', 'image/jpg'];
 
 export interface DesignFile {
   id: string;
@@ -68,22 +72,43 @@ export class FilesService {
     // Delete existing file if any
     await this.deleteFile(designJobId);
 
-    // Generate storage key (UUID-based to prevent path traversal)
-    const ext = file.originalname.split('.').pop() ?? 'bin';
-    const storageKey = `${randomUUID()}.${ext}`;
+    const isImage = IMAGE_MIMETYPES.includes(file.mimetype);
+    let fileBuffer = file.buffer;
+    let storageKey: string;
+    let fileType: string;
+    let fileName: string;
 
-    // Move file to uploads directory
+    if (isImage) {
+      // Convert image to WebP format
+      fileBuffer = await sharp(file.buffer)
+        .webp({ quality: 85 })
+        .toBuffer();
+
+      storageKey = `${randomUUID()}.webp`;
+      fileType = 'image/webp';
+      // Keep original filename but change extension for display
+      const baseName = file.originalname.replace(/\.[^/.]+$/, '');
+      fileName = `${baseName}.webp`;
+    } else {
+      // Non-image files: keep original format
+      const ext = file.originalname.split('.').pop() ?? 'bin';
+      storageKey = `${randomUUID()}.${ext}`;
+      fileType = file.mimetype;
+      fileName = file.originalname;
+    }
+
+    // Write file to uploads directory
     const { writeFile } = await import('fs/promises');
-    await writeFile(join(UPLOADS_DIR, storageKey), file.buffer);
+    await writeFile(join(UPLOADS_DIR, storageKey), fileBuffer);
 
     // Insert file record
     const [inserted] = await this.db
       .insert(designFiles)
       .values({
         designJobId,
-        fileName: file.originalname,
+        fileName,
         storageKey,
-        fileType: file.mimetype,
+        fileType,
         version: 1,
         isFinal: true,
       })

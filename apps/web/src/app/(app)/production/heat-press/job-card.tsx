@@ -1,9 +1,9 @@
 'use client';
 
 import { formatDate, type JobStatus } from '@yamban/shared';
-import { Calendar, Check, Printer } from 'lucide-react';
+import { Calendar, Check, Image as ImageIcon, Printer, X } from 'lucide-react';
 import Link from 'next/link';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { Button } from '@/components/ui/button';
 import { CompleteJobButton } from './complete-job-button';
@@ -13,6 +13,13 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+}
+
+interface DesignFileInfo {
+  id: string;
+  fileName: string;
+  storageKey: string;
+  isFinal: boolean;
 }
 
 interface StageJobRow {
@@ -30,6 +37,7 @@ interface StageJobRow {
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
+  designFile: DesignFileInfo | null;
 }
 
 interface JobCardProps {
@@ -38,6 +46,7 @@ interface JobCardProps {
 
 export function JobCard({ job }: JobCardProps) {
   const ticketRef = useRef<HTMLDivElement>(null);
+  const [showLightbox, setShowLightbox] = useState(false);
   const isPending = job.status === 'PENDING';
   const isInProgress = job.status === 'IN_PROGRESS';
 
@@ -45,6 +54,10 @@ export function JobCard({ job }: JobCardProps) {
     contentRef: ticketRef,
     documentTitle: `Ticket-${job.orderNumber}`,
   });
+
+  const designImageUrl = job.designFile
+    ? `/api/files/${job.designFile.storageKey}`
+    : null;
 
   return (
     <div className="rounded-surface border border-border bg-card p-4">
@@ -64,6 +77,48 @@ export function JobCard({ job }: JobCardProps) {
       </div>
 
       <p className="mt-2 truncate text-sm text-foreground">{job.productName}</p>
+
+      {/* Design Image Thumbnail */}
+      {designImageUrl && (
+        <div className="mt-3">
+          <button
+            type="button"
+            className="group relative block overflow-hidden rounded border border-border"
+            onClick={() => setShowLightbox(true)}
+          >
+            <img
+              src={designImageUrl}
+              alt="Design"
+              className="h-24 w-full object-cover transition-opacity group-hover:opacity-80"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+              <ImageIcon className="size-6 text-white" />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {showLightbox && designImageUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setShowLightbox(false)}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 text-white hover:text-gray-300"
+            onClick={() => setShowLightbox(false)}
+          >
+            <X className="size-8" />
+          </button>
+          <img
+            src={designImageUrl}
+            alt="Design"
+            className="max-h-[90vh] max-w-[90vw] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {/* Size breakdown */}
       {job.sizes.length > 0 && (
@@ -145,6 +200,7 @@ export function JobCard({ job }: JobCardProps) {
         quantity={job.quantity}
         sizes={job.sizes}
         roster={job.roster}
+        designImageUrl={designImageUrl}
       />
     </div>
   );

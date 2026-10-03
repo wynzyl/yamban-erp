@@ -5,6 +5,7 @@ import { DesignController } from './design.controller.js';
 import { DesignService } from './design.service.js';
 import { FilesController } from './files.controller.js';
 import { FilesService } from './files.service.js';
+import { StaticFilesController } from './static-files.controller.js';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { FilesService } from './files.service.js';
       storage: memoryStorage(),
     }),
   ],
-  controllers: [DesignController, FilesController],
+  controllers: [DesignController, FilesController, StaticFilesController],
   providers: [DesignService, FilesService],
   exports: [DesignService, FilesService],
 })

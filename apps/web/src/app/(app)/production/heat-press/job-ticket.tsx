@@ -15,15 +15,27 @@ interface JobTicketProps {
   quantity: number;
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
+  designImageUrl?: string | null;
 }
 
 export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
-  ({ customerName, productName, orderNumber, quantity, sizes, roster }, ref) => {
+  ({ customerName, productName, orderNumber, quantity, sizes, roster, designImageUrl }, ref) => {
     return (
       <div ref={ref} className="hidden print:block">
         <div className="border-2 border-black p-4 font-mono text-sm" style={{ width: '300px' }}>
           <div className="mb-2 text-lg font-bold">{customerName}</div>
           <div className="mb-3 text-base">{productName}</div>
+
+          {/* Design Image */}
+          {designImageUrl && (
+            <div className="mb-3">
+              <img
+                src={designImageUrl}
+                alt="Design"
+                className="h-auto w-full border border-gray-300"
+              />
+            </div>
+          )}
 
           {/* Size breakdown */}
           {sizes.length > 0 ? (

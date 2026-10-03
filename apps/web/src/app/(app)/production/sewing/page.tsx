@@ -12,6 +12,13 @@ interface RosterEntry {
   size: string;
 }
 
+interface DesignFileInfo {
+  id: string;
+  fileName: string;
+  storageKey: string;
+  isFinal: boolean;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -27,6 +34,7 @@ interface StageJobRow {
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
+  designFile: DesignFileInfo | null;
 }
 
 export default async function SewingPage() {
