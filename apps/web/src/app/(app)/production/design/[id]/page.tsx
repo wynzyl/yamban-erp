@@ -1,4 +1,4 @@
-import { DESIGN_APPROVAL_STATUS_LABELS, type DesignApprovalStatus } from '@yamban/shared';
+import type { JobStatus } from '@yamban/shared';
 import { ArrowLeft, Calendar, Package, User } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -7,7 +7,8 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Surface } from '@/components/ui/surface';
 import { apiFetch } from '@/lib/api';
 import { AssignDialog } from './assign-dialog';
-import { StatusActions } from './status-actions';
+import { FileUpload } from './file-upload';
+import { ReadyAction } from './ready-action';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -22,11 +23,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 interface DesignJobDetail {
   id: string;
   productionJobId: string;
-  approvalStatus: DesignApprovalStatus;
   requirements: string | null;
   referenceNotes: string | null;
-  revisionCount: number;
-  customerApprovedAt: string | null;
   orderId: string;
   orderNumber: string;
   orderItemId: string;
@@ -39,6 +37,11 @@ interface DesignJobDetail {
   dueDate: string | null;
   assignedToId: string | null;
   assignedToName: string | null;
+  hasFile: boolean;
+  isReady: boolean;
+  productionStatus: JobStatus;
+  fileId: string | null;
+  fileName: string | null;
 }
 
 interface UserRow {
@@ -87,18 +90,14 @@ export default async function DesignJobDetailPage({ params }: { params: Promise<
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Status</dt>
-              <dd className="font-medium text-primary">{DESIGN_APPROVAL_STATUS_LABELS[job.approvalStatus]}</dd>
+              <dd className="font-medium text-primary">
+                {job.isReady ? 'Ready for print' : 'Pending'}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Quantity</dt>
               <dd>{job.quantity} pcs</dd>
             </div>
-            {job.revisionCount > 0 && (
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Revisions</dt>
-                <dd>{job.revisionCount}</dd>
-              </div>
-            )}
             {job.dueDate && (
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Due date</dt>
@@ -153,10 +152,23 @@ export default async function DesignJobDetailPage({ params }: { params: Promise<
         </Surface>
       </div>
 
-      {/* Status Actions */}
+      {/* Design File */}
       <Surface className="mt-6 p-4">
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Approval workflow</h2>
-        <StatusActions jobId={job.id} currentStatus={job.approvalStatus} />
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Design file</h2>
+        <FileUpload
+          designJobId={job.id}
+          currentFile={job.fileId ? { id: job.fileId, fileName: job.fileName! } : null}
+        />
+      </Surface>
+
+      {/* Ready for Print Action */}
+      <Surface className="mt-6 p-4">
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Print status</h2>
+        <ReadyAction
+          designJobId={job.id}
+          hasFile={job.hasFile}
+          isReady={job.isReady}
+        />
       </Surface>
 
       {/* Requirements */}
