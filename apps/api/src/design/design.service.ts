@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import type { DesignApprovalStatus, JobStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
+import type { JobStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
@@ -45,19 +45,6 @@ export interface DesignJobDetail extends DesignJobRow {
   referenceNotes: string | null;
   fileId: string | null;
   fileName: string | null;
-}
-
-// Valid approval status transitions
-export const VALID_TRANSITIONS: Record<DesignApprovalStatus, DesignApprovalStatus[]> = {
-  DRAFTING: ['FOR_APPROVAL'],
-  FOR_APPROVAL: ['APPROVED', 'REVISION_REQUESTED'],
-  REVISION_REQUESTED: ['FOR_APPROVAL'],
-  APPROVED: [], // terminal
-};
-
-/** Check if a status transition is valid */
-export function isValidTransition(from: DesignApprovalStatus, to: DesignApprovalStatus): boolean {
-  return VALID_TRANSITIONS[from].includes(to);
 }
 
 @Injectable()
@@ -211,41 +198,17 @@ export class DesignService {
     };
   }
 
-  async update(id: string, data: UpdateDesignJobData, userId?: string) {
-    // Fetch current state
+  /** Update design job notes (requirements and referenceNotes) */
+  async update(id: string, data: UpdateDesignJobData) {
     const [existing] = await this.db
-      .select({
-        approvalStatus: designJobs.approvalStatus,
-        revisionCount: designJobs.revisionCount,
-      })
+      .select({ id: designJobs.id })
       .from(designJobs)
       .where(eq(designJobs.id, id))
       .limit(1);
 
     if (!existing) throw new NotFoundException('Design job not found.');
 
-    // Validate approval status transition
-    if (data.approvalStatus && data.approvalStatus !== existing.approvalStatus) {
-      if (!isValidTransition(existing.approvalStatus, data.approvalStatus)) {
-        throw new BadRequestException(
-          `Cannot transition from ${existing.approvalStatus} to ${data.approvalStatus}.`,
-        );
-      }
-    }
-
     const updates: Partial<typeof designJobs.$inferInsert> = {};
-    if (data.approvalStatus !== undefined) {
-      updates.approvalStatus = data.approvalStatus;
-      // Track revision count when going to REVISION_REQUESTED
-      if (data.approvalStatus === 'REVISION_REQUESTED') {
-        updates.revisionCount = existing.revisionCount + 1;
-      }
-      // Set customerApprovedAt when approved
-      if (data.approvalStatus === 'APPROVED') {
-        updates.customerApprovedAt = new Date();
-        if (userId) updates.approvedById = userId;
-      }
-    }
     if (data.requirements !== undefined) updates.requirements = data.requirements;
     if (data.referenceNotes !== undefined) updates.referenceNotes = data.referenceNotes;
 
