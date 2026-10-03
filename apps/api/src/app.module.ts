@@ -10,6 +10,7 @@ import { DesignModule } from './design/design.module.js';
 import { MaterialsModule } from './materials/materials.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
+import { ProductionModule } from './production/production.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
 import { HealthController } from './health/health.controller.js';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module.js';
     MaterialsModule,
     OrdersModule,
     PaymentsModule,
+    ProductionModule,
     ProductsModule,
     SuppliersModule,
   ],
