@@ -86,7 +86,7 @@ export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, string> = {
   PRINTING: 'Printing',
   HEAT_PRESS: 'Heat press',
   SEWING: 'Sewing',
-  PACKAGING: 'Packaging',
+  PACKAGING: 'Ready for pickup',
 };
 
 export const SIZE_LABELS: Record<GarmentSize, string> = {

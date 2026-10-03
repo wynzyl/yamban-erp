@@ -34,10 +34,9 @@ export const NAV: NavGroup[] = [
     label: 'Production',
     items: [
       { label: 'Design', href: '/production/design', phase: 3 },
-      { label: 'Printing', href: '/production/printing', phase: 5 },
-      { label: 'Heat press', href: '/production/heat-press', phase: 5 },
-      { label: 'Sewing', href: '/production/sewing', phase: 5 },
-      { label: 'Packaging', href: '/production/packaging', phase: 5 },
+      { label: 'Printing', href: '/production/printing', phase: 4 },
+      { label: 'Heat press', href: '/production/heat-press', phase: 4 },
+      { label: 'Sewing', href: '/production/sewing', phase: 4 },
     ],
   },
   {
