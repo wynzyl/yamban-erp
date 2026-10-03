@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
-import type { JobStatus, ProductionStage } from '@yamban/shared';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { JobStatus, ProductionStage, StartJobData } from '@yamban/shared';
+import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
@@ -198,5 +199,104 @@ export class ProductionService {
       sewing,
       ready,
     };
+  }
+
+  /** Start a job (set to IN_PROGRESS) with payment check for printing */
+  async startJob(jobId: string, data: StartJobData) {
+    const [job] = await this.db
+      .select({
+        id: productionJobs.id,
+        stage: productionJobs.stage,
+        status: productionJobs.status,
+        orderId: productionJobs.orderId,
+      })
+      .from(productionJobs)
+      .where(eq(productionJobs.id, jobId))
+      .limit(1);
+
+    if (!job) throw new NotFoundException('Job not found.');
+    if (job.status !== 'PENDING') {
+      throw new BadRequestException('Job is not in pending status.');
+    }
+
+    // For PRINTING stage, check payment
+    if (job.stage === 'PRINTING') {
+      const [paymentCheck] = await this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(payments)
+        .where(eq(payments.orderId, job.orderId));
+
+      const hasPayment = (paymentCheck?.count ?? 0) > 0;
+
+      if (!hasPayment && !data.acknowledgeNoPayment) {
+        throw new BadRequestException(
+          JSON.stringify({ requiresAcknowledgement: true, message: 'No down payment recorded.' }),
+        );
+      }
+    }
+
+    // Update job to IN_PROGRESS
+    await this.db
+      .update(productionJobs)
+      .set({
+        status: 'IN_PROGRESS',
+        startedAt: new Date(),
+      })
+      .where(eq(productionJobs.id, jobId));
+
+    return { success: true };
+  }
+
+  /** Complete a job and start the next stage if applicable */
+  async completeJob(jobId: string) {
+    const [job] = await this.db
+      .select({
+        id: productionJobs.id,
+        stage: productionJobs.stage,
+        status: productionJobs.status,
+        orderItemId: productionJobs.orderItemId,
+      })
+      .from(productionJobs)
+      .where(eq(productionJobs.id, jobId))
+      .limit(1);
+
+    if (!job) throw new NotFoundException('Job not found.');
+
+    // Idempotent: if already completed, return success
+    if (job.status === 'COMPLETED') {
+      return { success: true, alreadyCompleted: true };
+    }
+
+    // Mark current job as COMPLETED
+    await this.db
+      .update(productionJobs)
+      .set({
+        status: 'COMPLETED',
+        completedAt: new Date(),
+      })
+      .where(eq(productionJobs.id, jobId));
+
+    // Find and start next stage
+    const currentStageIndex = PRODUCTION_STAGES.indexOf(job.stage);
+    if (currentStageIndex < PRODUCTION_STAGES.length - 1) {
+      const nextStage = PRODUCTION_STAGES[currentStageIndex + 1];
+
+      // Update next stage job to IN_PROGRESS
+      await this.db
+        .update(productionJobs)
+        .set({
+          status: 'IN_PROGRESS',
+          startedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(productionJobs.orderItemId, job.orderItemId),
+            eq(productionJobs.stage, nextStage!),
+            eq(productionJobs.status, 'PENDING'),
+          ),
+        );
+    }
+
+    return { success: true };
   }
 }
