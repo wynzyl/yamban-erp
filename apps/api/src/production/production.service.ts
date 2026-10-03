@@ -8,11 +8,18 @@ import {
   customers,
   orderItems,
   orderItemSizes,
+  orderRoster,
   orders,
   payments,
   productionJobs,
   products,
 } from '../db/schema/index.js';
+
+export interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
 
 export interface StageJobRow {
   id: string;
@@ -28,6 +35,7 @@ export interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 export interface DashboardCounts {
@@ -105,6 +113,16 @@ export class ProductionService {
         .from(orderItemSizes)
         .where(eq(orderItemSizes.orderItemId, row.orderItemId));
 
+      // Get roster for this order item
+      const rosterData = await this.db
+        .select({
+          playerName: orderRoster.playerName,
+          jerseyNumber: orderRoster.jerseyNumber,
+          size: orderRoster.size,
+        })
+        .from(orderRoster)
+        .where(eq(orderRoster.orderItemId, row.orderItemId));
+
       const customerName = [row.customerFirstName, row.customerLastName]
         .filter(Boolean)
         .join(' ');
@@ -123,6 +141,11 @@ export class ProductionService {
         dueDate: row.dueDate,
         hasPaidDownPayment: (paymentCheck?.count ?? 0) > 0,
         sizes: sizesData.map((s) => ({ size: s.size, quantity: s.quantity })),
+        roster: rosterData.map((r) => ({
+          playerName: r.playerName,
+          jerseyNumber: r.jerseyNumber,
+          size: r.size,
+        })),
       });
     }
 

@@ -7,6 +7,12 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -21,6 +27,7 @@ interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 interface SewingBoardProps {

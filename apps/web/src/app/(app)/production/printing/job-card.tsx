@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button';
 import { StartJobDialog } from './start-job-dialog';
 import { CompleteJobButton } from './complete-job-button';
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -21,6 +27,7 @@ interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 interface JobCardProps {

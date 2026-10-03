@@ -6,6 +6,12 @@ import { SewingBoard } from './sewing-board';
 
 export const metadata: Metadata = { title: 'Sewing' };
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -20,6 +26,7 @@ interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 export default async function SewingPage() {

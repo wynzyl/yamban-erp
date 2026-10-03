@@ -9,6 +9,12 @@ import { Button } from '@/components/ui/button';
 import { CompleteJobButton } from './complete-job-button';
 import { JobTicket } from './job-ticket';
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -23,6 +29,7 @@ interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 interface JobCardProps {
@@ -72,6 +79,34 @@ export function JobCard({ job }: JobCardProps) {
         </div>
       )}
 
+      {/* Roster preview - grouped by size */}
+      {job.roster.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">
+            Roster ({job.roster.length} players)
+          </summary>
+          <div className="mt-2 space-y-2">
+            {job.sizes.map((s) => {
+              const playersInSize = job.roster.filter((r) => r.size === s.size);
+              if (playersInSize.length === 0) return null;
+              return (
+                <div key={s.size} className="text-xs">
+                  <div className="font-medium text-muted-foreground">{s.size}</div>
+                  <div className="mt-0.5 space-y-0.5 pl-2">
+                    {playersInSize.map((r, idx) => (
+                      <div key={idx} className="text-foreground">
+                        {r.jerseyNumber && <span className="font-mono">#{r.jerseyNumber} </span>}
+                        {r.playerName}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
+
       <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
         {job.dueDate && (
           <span className="flex items-center gap-1">
@@ -109,6 +144,7 @@ export function JobCard({ job }: JobCardProps) {
         orderNumber={job.orderNumber}
         quantity={job.quantity}
         sizes={job.sizes}
+        roster={job.roster}
       />
     </div>
   );

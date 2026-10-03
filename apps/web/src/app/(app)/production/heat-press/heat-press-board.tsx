@@ -3,6 +3,12 @@
 import type { JobStatus } from '@yamban/shared';
 import { JobCard } from './job-card';
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface StageJobRow {
   id: string;
   orderItemId: string;
@@ -17,6 +23,7 @@ interface StageJobRow {
   dueDate: string | null;
   hasPaidDownPayment: boolean;
   sizes: { size: string; quantity: number }[];
+  roster: RosterEntry[];
 }
 
 interface HeatPressBoardProps {
