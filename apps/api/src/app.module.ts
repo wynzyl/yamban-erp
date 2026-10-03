@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { CustomersModule } from './customers/customers.module.js';
 import { DatabaseModule } from './db/database.module.js';
+import { DesignModule } from './design/design.module.js';
 import { MaterialsModule } from './materials/materials.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module.js';
     AuthModule,
     UsersModule,
     CustomersModule,
+    DesignModule,
     MaterialsModule,
     OrdersModule,
     PaymentsModule,
