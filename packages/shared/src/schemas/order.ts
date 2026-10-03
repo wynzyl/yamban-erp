@@ -70,6 +70,31 @@ export const updateOrderSchema = z.object({
 export type UpdateOrderData = z.output<typeof updateOrderSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Edit Order Items (for full order editing before PRINTING)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const editOrderItemSchema = z.object({
+  id: z.uuid().optional(), // existing item ID (undefined = new item)
+  productId: z.uuid('Select a product.'),
+  description: optionalText(500),
+  sizes: z.array(orderItemSizeSchema).min(1, 'Add at least one size.'),
+  roster: z.array(rosterEntrySchema).optional().default([]),
+});
+export type EditOrderItemInput = z.input<typeof editOrderItemSchema>;
+
+export const editOrderSchema = z.object({
+  dueDate: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v : null)),
+  discount: money.optional().default('0'),
+  notes: optionalText(2000),
+  items: z.array(editOrderItemSchema).min(1, 'Add at least one item.'),
+});
+export type EditOrderInput = z.input<typeof editOrderSchema>;
+export type EditOrderData = z.output<typeof editOrderSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Confirm Order (transitions QUOTATION → CONFIRMED)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -90,3 +115,69 @@ export const ORDER_STATUS_LABELS: Record<(typeof ORDER_STATUSES)[number], string
   RELEASED: 'Released',
   CANCELLED: 'Cancelled',
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Edit Permissions (graduated permissions for post-confirmation editing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface EditPermissions {
+  canFullEdit: boolean;
+  canEditRoster: boolean;
+  canAddItems: boolean;
+  canEditPrices: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Update Roster (edit roster for a specific item)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateRosterSchema = z.object({
+  roster: z.array(rosterEntrySchema),
+});
+export type UpdateRosterInput = z.input<typeof updateRosterSchema>;
+export type UpdateRosterData = z.output<typeof updateRosterSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Order Item (add item to confirmed order)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const addOrderItemSchema = z.object({
+  productId: z.uuid('Select a product.'),
+  description: optionalText(500),
+  sizes: z.array(orderItemSizeSchema).min(1, 'Add at least one size.'),
+  roster: z.array(rosterEntrySchema).optional().default([]),
+});
+export type AddOrderItemInput = z.input<typeof addOrderItemSchema>;
+export type AddOrderItemData = z.output<typeof addOrderItemSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Update Item Sizes (change description, quantities and prices for a specific item)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateItemSizesSchema = z.object({
+  description: optionalText(500),
+  sizes: z.array(
+    z.object({
+      size: z.enum(GARMENT_SIZES, { message: 'Select a size.' }),
+      quantity: positiveInt,
+      unitPrice: money,
+    }),
+  ).min(1, 'Provide at least one size.'),
+});
+export type UpdateItemSizesInput = z.input<typeof updateItemSizesSchema>;
+export type UpdateItemSizesData = z.output<typeof updateItemSizesSchema>;
+
+// Keep old schema for backwards compatibility
+export const updateItemPricesSchema = updateItemSizesSchema;
+export type UpdateItemPricesInput = UpdateItemSizesInput;
+export type UpdateItemPricesData = UpdateItemSizesData;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Update Order Notes
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateOrderNotesSchema = z.object({
+  notes: optionalText(2000),
+});
+export type UpdateOrderNotesInput = z.input<typeof updateOrderNotesSchema>;
+export type UpdateOrderNotesData = z.output<typeof updateOrderNotesSchema>;

@@ -1,7 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { CreateOrderData, EditOrderData, ListQuery, OrderStatus, Paginated, UpdateOrderData } from '@yamban/shared';
+import type {
+  AddOrderItemData,
+  CreateOrderData,
+  EditOrderData,
+  EditPermissions,
+  ListQuery,
+  OrderStatus,
+  Paginated,
+  UpdateItemPricesData,
+  UpdateOrderData,
+  UpdateOrderNotesData,
+  UpdateRosterData,
+} from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
-import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -461,11 +473,55 @@ export class OrdersService {
         and(
           eq(productionJobs.orderId, id),
           inArray(productionJobs.stage, ['PRINTING', 'HEAT_PRESS', 'SEWING', 'PACKAGING']),
-          sql`${productionJobs.status} != 'PENDING'`, // Started jobs
+          ne(productionJobs.status, 'PENDING'), // Started jobs
         ),
       );
 
     return (printingOrBeyond?.count ?? 0) === 0;
+  }
+
+  /** Get graduated edit permissions for an order */
+  async getEditPermissions(id: string): Promise<EditPermissions> {
+    const [order] = await this.db
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, id))
+      .limit(1);
+
+    if (!order) {
+      return { canFullEdit: false, canEditRoster: false, canAddItems: false, canEditPrices: false };
+    }
+
+    // Quotations have full edit access
+    if (order.status === 'QUOTATION') {
+      return { canFullEdit: true, canEditRoster: true, canAddItems: true, canEditPrices: true };
+    }
+
+    // Released or cancelled orders cannot be edited
+    if (order.status === 'RELEASED' || order.status === 'CANCELLED') {
+      return { canFullEdit: false, canEditRoster: false, canAddItems: false, canEditPrices: false };
+    }
+
+    // Check if any production job has started PRINTING or beyond (blocks full edit)
+    const [printingStarted] = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(productionJobs)
+      .where(
+        and(
+          eq(productionJobs.orderId, id),
+          inArray(productionJobs.stage, ['PRINTING', 'HEAT_PRESS', 'SEWING', 'PACKAGING']),
+          ne(productionJobs.status, 'PENDING'),
+        ),
+      );
+
+    const canFullEdit = (printingStarted?.count ?? 0) === 0;
+    // Item-level edits (roster, prices, sizes) are allowed until RELEASED
+    // This gives flexibility for changes during production
+    const canEditRoster = true;
+    const canAddItems = true;
+    const canEditPrices = true;
+
+    return { canFullEdit, canEditRoster, canAddItems, canEditPrices };
   }
 
   /** Full order edit with items, sizes, and roster */
@@ -596,6 +652,278 @@ export class OrdersService {
       // Return updated order
       const [updated] = await tx.select().from(orders).where(eq(orders.id, id));
       return updated!;
+    });
+  }
+
+  /** Update roster for a specific item */
+  async editRoster(orderId: string, itemId: string, data: UpdateRosterData) {
+    const permissions = await this.getEditPermissions(orderId);
+    if (!permissions.canEditRoster) {
+      throw new BadRequestException('Roster cannot be edited once packaging has started.');
+    }
+
+    // Verify item belongs to order
+    const [item] = await this.db
+      .select({ id: orderItems.id })
+      .from(orderItems)
+      .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)))
+      .limit(1);
+
+    if (!item) throw new NotFoundException('Order item not found.');
+
+    return await this.db.transaction(async (tx) => {
+      // Delete existing roster entries for this item
+      await tx.delete(orderRoster).where(eq(orderRoster.orderItemId, itemId));
+
+      // Insert new roster entries
+      for (const entry of data.roster) {
+        await tx.insert(orderRoster).values({
+          orderItemId: itemId,
+          playerName: entry.playerName,
+          jerseyNumber: entry.jerseyNumber || null,
+          size: entry.size,
+        });
+      }
+
+      // Return updated roster
+      const roster = await tx
+        .select()
+        .from(orderRoster)
+        .where(eq(orderRoster.orderItemId, itemId));
+
+      return roster;
+    });
+  }
+
+  /** Update sizes (description, quantities and prices) for a specific item */
+  async updateItemPrices(orderId: string, itemId: string, data: UpdateItemPricesData) {
+    const permissions = await this.getEditPermissions(orderId);
+    if (!permissions.canEditPrices) {
+      throw new BadRequestException('Item cannot be changed once order is released.');
+    }
+
+    // Verify item belongs to order
+    const [item] = await this.db
+      .select({ id: orderItems.id })
+      .from(orderItems)
+      .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, orderId)))
+      .limit(1);
+
+    if (!item) throw new NotFoundException('Order item not found.');
+
+    return await this.db.transaction(async (tx) => {
+      // Update item description
+      if (data.description !== undefined) {
+        await tx
+          .update(orderItems)
+          .set({ description: data.description })
+          .where(eq(orderItems.id, itemId));
+      }
+
+      // Update quantity and price for each size
+      let totalQuantity = 0;
+      for (const sizeData of data.sizes) {
+        const [existingSize] = await tx
+          .select({ id: orderItemSizes.id })
+          .from(orderItemSizes)
+          .where(
+            and(
+              eq(orderItemSizes.orderItemId, itemId),
+              eq(orderItemSizes.size, sizeData.size),
+            ),
+          )
+          .limit(1);
+
+        const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+        totalQuantity += sizeData.quantity;
+
+        if (existingSize) {
+          await tx
+            .update(orderItemSizes)
+            .set({
+              quantity: sizeData.quantity,
+              unitPrice: sizeData.unitPrice,
+              subtotal: sizeSubtotal.toFixed(2),
+            })
+            .where(eq(orderItemSizes.id, existingSize.id));
+        }
+      }
+
+      // Recalculate item subtotal and quantity
+      const sizes = await tx
+        .select({ subtotal: orderItemSizes.subtotal, quantity: orderItemSizes.quantity })
+        .from(orderItemSizes)
+        .where(eq(orderItemSizes.orderItemId, itemId));
+
+      const itemSubtotal = sizes.reduce((sum, s) => sum + parseFloat(s.subtotal), 0);
+      const itemQuantity = sizes.reduce((sum, s) => sum + s.quantity, 0);
+      await tx
+        .update(orderItems)
+        .set({ quantity: itemQuantity, subtotal: itemSubtotal.toFixed(2) })
+        .where(eq(orderItems.id, itemId));
+
+      // Recalculate order totals
+      const allItems = await tx
+        .select({ subtotal: orderItems.subtotal })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId));
+
+      const orderSubtotal = allItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+
+      const [order] = await tx
+        .select({ discount: orders.discount })
+        .from(orders)
+        .where(eq(orders.id, orderId));
+
+      const discount = parseFloat(order?.discount ?? '0');
+      const orderTotal = Math.max(0, orderSubtotal - discount);
+
+      await tx
+        .update(orders)
+        .set({
+          subtotal: orderSubtotal.toFixed(2),
+          total: orderTotal.toFixed(2),
+        })
+        .where(eq(orders.id, orderId));
+
+      // Return updated order
+      const [updated] = await tx.select().from(orders).where(eq(orders.id, orderId));
+      return updated!;
+    });
+  }
+
+  /** Update order notes */
+  async updateOrderNotes(orderId: string, data: UpdateOrderNotesData) {
+    const permissions = await this.getEditPermissions(orderId);
+    if (!permissions.canEditPrices) {
+      throw new BadRequestException('Notes cannot be changed once order is released.');
+    }
+
+    const [order] = await this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) throw new NotFoundException('Order not found.');
+
+    const [updated] = await this.db
+      .update(orders)
+      .set({ notes: data.notes })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    return updated!;
+  }
+
+  /** Add a new item to a confirmed order */
+  async addOrderItem(orderId: string, data: AddOrderItemData) {
+    const permissions = await this.getEditPermissions(orderId);
+    if (!permissions.canAddItems) {
+      throw new BadRequestException('Items cannot be added once order is released.');
+    }
+
+    const [order] = await this.db
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+
+    if (!order) throw new NotFoundException('Order not found.');
+
+    return await this.db.transaction(async (tx) => {
+      // Calculate item totals
+      let itemQty = 0;
+      let itemSubtotal = 0;
+      for (const size of data.sizes) {
+        itemQty += size.quantity;
+        itemSubtotal += parseFloat(size.unitPrice) * size.quantity;
+      }
+
+      // Insert order item
+      const [item] = await tx
+        .insert(orderItems)
+        .values({
+          orderId,
+          productId: data.productId,
+          description: data.description,
+          quantity: itemQty,
+          subtotal: itemSubtotal.toFixed(2),
+        })
+        .returning();
+
+      // Insert sizes
+      for (const sizeData of data.sizes) {
+        const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+        await tx.insert(orderItemSizes).values({
+          orderItemId: item!.id,
+          size: sizeData.size,
+          quantity: sizeData.quantity,
+          unitPrice: sizeData.unitPrice,
+          subtotal: sizeSubtotal.toFixed(2),
+        });
+      }
+
+      // Insert roster entries
+      if (data.roster && data.roster.length > 0) {
+        for (const rosterEntry of data.roster) {
+          await tx.insert(orderRoster).values({
+            orderItemId: item!.id,
+            playerName: rosterEntry.playerName,
+            jerseyNumber: rosterEntry.jerseyNumber || null,
+            size: rosterEntry.size,
+          });
+        }
+      }
+
+      // If order is confirmed or beyond, create production jobs
+      if (order.status !== 'QUOTATION') {
+        for (const [i, stage] of PRODUCTION_STAGES.entries()) {
+          const [job] = await tx
+            .insert(productionJobs)
+            .values({
+              orderId,
+              orderItemId: item!.id,
+              stage,
+              sequence: i + 1,
+              plannedQuantity: itemQty,
+            })
+            .returning();
+
+          // For DESIGN stage, create design_jobs row
+          if (stage === 'DESIGN' && job) {
+            await tx.insert(designJobs).values({
+              productionJobId: job.id,
+            });
+          }
+        }
+      }
+
+      // Recalculate order totals
+      const allItems = await tx
+        .select({ subtotal: orderItems.subtotal })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId));
+
+      const orderSubtotal = allItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+
+      const [existingOrder] = await tx
+        .select({ discount: orders.discount })
+        .from(orders)
+        .where(eq(orders.id, orderId));
+
+      const discount = parseFloat(existingOrder?.discount ?? '0');
+      const orderTotal = Math.max(0, orderSubtotal - discount);
+
+      await tx
+        .update(orders)
+        .set({
+          subtotal: orderSubtotal.toFixed(2),
+          total: orderTotal.toFixed(2),
+        })
+        .where(eq(orders.id, orderId));
+
+      return item!;
     });
   }
 

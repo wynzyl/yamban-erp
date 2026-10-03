@@ -1,5 +1,5 @@
-import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
-import { ArrowLeft, Calendar, Edit, ExternalLink, Package, Palette, Plus, User } from 'lucide-react';
+import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
+import { ArrowLeft, Calendar, Edit, Package, Palette, Plus, User, Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -32,6 +32,14 @@ interface OrderItemSize {
   subtotal: string;
 }
 
+interface RosterEntry {
+  id: string;
+  orderItemId: string;
+  playerName: string;
+  jerseyNumber: string | null;
+  size: string;
+}
+
 interface OrderItem {
   id: string;
   productId: string;
@@ -40,6 +48,7 @@ interface OrderItem {
   quantity: number;
   subtotal: string;
   sizes: OrderItemSize[];
+  roster: RosterEntry[];
 }
 
 interface Payment {
@@ -90,8 +99,14 @@ interface OrderDetail {
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let order: OrderDetail;
+  let permissions: EditPermissions;
   try {
-    order = await apiFetch<OrderDetail>(`/orders/${id}`);
+    const [orderData, permsData] = await Promise.all([
+      apiFetch<OrderDetail>(`/orders/${id}`),
+      apiFetch<EditPermissions>(`/orders/${id}/edit-permissions`),
+    ]);
+    order = orderData;
+    permissions = permsData;
   } catch {
     notFound();
   }
@@ -115,12 +130,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       <PageHeader title={`Order ${order.orderNumber}`}>
         <div className="flex items-center gap-2">
           {order.status === 'QUOTATION' && <DeleteOrderButton id={order.id} />}
-          <Button asChild variant="outline">
-            <Link href={`/orders/${order.id}/edit`}>
-              <Edit className="size-4" />
-              Edit
-            </Link>
-          </Button>
+          {permissions.canAddItems && (
+            <Button asChild variant="outline">
+              <Link href={`/orders/${order.id}/items/new`}>
+                <Plus className="size-4" />
+                Add item
+              </Link>
+            </Button>
+          )}
+          {permissions.canFullEdit && (
+            <Button asChild variant="outline">
+              <Link href={`/orders/${order.id}/edit`}>
+                <Edit className="size-4" />
+                Edit
+              </Link>
+            </Button>
+          )}
         </div>
       </PageHeader>
 
@@ -225,6 +250,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <TableHead>Description</TableHead>
               <TableHead className="text-right">Qty</TableHead>
               <TableHead className="text-right">Subtotal</TableHead>
+              {(permissions.canEditRoster || permissions.canEditPrices) && <TableHead></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -247,12 +273,61 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                       ))}
                     </div>
                   )}
+                  {item.roster && item.roster.length > 0 && (
+                    <details className="mt-2 pl-6">
+                      <summary className="cursor-pointer text-xs text-muted-foreground">
+                        Roster ({item.roster.length} player{item.roster.length !== 1 ? 's' : ''})
+                      </summary>
+                      <div className="mt-1 space-y-1">
+                        {item.sizes.map((s) => {
+                          const playersInSize = item.roster.filter((r) => r.size === s.size);
+                          if (playersInSize.length === 0) return null;
+                          return (
+                            <div key={s.size} className="text-xs">
+                              <span className="font-medium text-muted-foreground">{s.size}:</span>
+                              <span className="ml-1 text-foreground">
+                                {playersInSize.map((r, idx) => (
+                                  <span key={r.id}>
+                                    {idx > 0 && ', '}
+                                    {r.jerseyNumber && <span className="font-mono">#{r.jerseyNumber} </span>}
+                                    {r.playerName}
+                                  </span>
+                                ))}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">{item.description ?? '—'}</TableCell>
                 <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
                 <TableCell className="text-right">
                   <Money value={item.subtotal} />
                 </TableCell>
+                {(permissions.canEditRoster || permissions.canEditPrices) && (
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
+                      {permissions.canEditRoster && (
+                        <Button asChild variant="ghost" size="sm">
+                          <Link href={`/orders/${order.id}/items/${item.id}/roster`}>
+                            <Users className="size-3.5" />
+                            Roster
+                          </Link>
+                        </Button>
+                      )}
+                      {permissions.canEditPrices && (
+                        <Button asChild variant="ghost" size="sm">
+                          <Link href={`/orders/${order.id}/items/${item.id}/prices`}>
+                            <Edit className="size-3.5" />
+                            Edit
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
@@ -377,12 +452,24 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       </Surface>
 
       {/* Notes */}
-      {order.notes && (
-        <Surface className="mt-6 p-4">
-          <h2 className="mb-2 text-sm font-medium text-muted-foreground">Notes</h2>
-          <p className="whitespace-pre-wrap text-sm">{order.notes}</p>
-        </Surface>
-      )}
+      <Surface className="mt-6 p-4">
+        <div className="flex items-start justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Notes</h2>
+          {permissions.canEditPrices && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/orders/${order.id}/notes`}>
+                <Edit className="size-3.5" />
+                Edit
+              </Link>
+            </Button>
+          )}
+        </div>
+        {order.notes ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm">{order.notes}</p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">No notes.</p>
+        )}
+      </Surface>
     </div>
   );
 }
