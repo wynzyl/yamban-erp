@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { updateDesignJobSchema, assignDesignJobSchema } from '@yamban/shared';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
@@ -33,5 +33,10 @@ export class DesignController {
     @Body(new ZodValidationPipe(assignDesignJobSchema)) data: ReturnType<typeof assignDesignJobSchema.parse>,
   ) {
     return this.design.assign(id, data);
+  }
+
+  @Post(':id/ready')
+  markReady(@Param('id') id: string) {
+    return this.design.markReady(id);
   }
 }
