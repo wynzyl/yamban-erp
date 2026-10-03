@@ -17,6 +17,7 @@ interface SupplierData {
   mobile: string | null;
   email: string | null;
   address: string | null;
+  bankDetails: string | null;
   notes: string | null;
 }
 
@@ -26,6 +27,7 @@ const fields: { name: keyof SupplierData; label: string; type?: string; placehol
   { name: 'mobile', label: 'Mobile', type: 'tel', placeholder: '0917 123 4567' },
   { name: 'email', label: 'Email', type: 'email' },
   { name: 'address', label: 'Address', wide: true },
+  { name: 'bankDetails', label: 'Bank details', wide: true, placeholder: 'Bank name, account number, account name' },
 ];
 
 interface SupplierFormProps {

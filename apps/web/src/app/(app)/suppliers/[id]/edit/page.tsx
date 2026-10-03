@@ -12,6 +12,7 @@ interface Supplier {
   mobile: string | null;
   email: string | null;
   address: string | null;
+  bankDetails: string | null;
   notes: string | null;
 }
 

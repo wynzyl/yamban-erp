@@ -1,5 +1,5 @@
 import { formatDate, formatMobile } from '@yamban/shared';
-import { ArrowLeft, Mail, MapPin, Phone, Truck } from 'lucide-react';
+import { ArrowLeft, Landmark, Mail, MapPin, Phone, Truck } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -17,6 +17,7 @@ interface Supplier {
   mobile: string | null;
   email: string | null;
   address: string | null;
+  bankDetails: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -85,7 +86,7 @@ export default async function SupplierPage({ params }: { params: Promise<{ id: s
       )}
 
       {/* Details */}
-      {(supplier.address || supplier.notes) && (
+      {(supplier.address || supplier.bankDetails || supplier.notes) && (
         <Surface className="mt-4">
           <SurfaceHeader>
             <SurfaceTitle>Details</SurfaceTitle>
@@ -97,6 +98,14 @@ export default async function SupplierPage({ params }: { params: Promise<{ id: s
                   <span className="flex items-start gap-2">
                     <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                     {supplier.address}
+                  </span>
+                </Field>
+              )}
+              {supplier.bankDetails && (
+                <Field label="Bank details">
+                  <span className="flex items-start gap-2">
+                    <Landmark className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <span className="whitespace-pre-wrap">{supplier.bankDetails}</span>
                   </span>
                 </Field>
               )}

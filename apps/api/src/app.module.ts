@@ -8,14 +8,13 @@ import { CustomersModule } from './customers/customers.module.js';
 import { DatabaseModule } from './db/database.module.js';
 import { DesignModule } from './design/design.module.js';
 import { MaterialsModule } from './materials/materials.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { PaymentsModule } from './payments/payments.module.js';
 import { ProductionModule } from './production/production.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
 import { HealthController } from './health/health.controller.js';
-import { McpService } from './mcp/mcp.service.js';
-import { mcp, MCP_STRATEGY } from './mcp/mcp.strategy.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -27,6 +26,7 @@ import { UsersModule } from './users/users.module.js';
     CustomersModule,
     DesignModule,
     MaterialsModule,
+    McpModule,
     OrdersModule,
     PaymentsModule,
     ProductionModule,
@@ -39,9 +39,6 @@ import { UsersModule } from './users/users.module.js';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useExisting: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
-    // MCP strategy and service for runtime tool registration
-    { provide: MCP_STRATEGY, useValue: mcp },
-    McpService,
   ],
 })
 export class AppModule {}
