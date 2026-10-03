@@ -46,12 +46,17 @@ export interface DesignJobDetail extends DesignJobRow {
 }
 
 // Valid approval status transitions
-const VALID_TRANSITIONS: Record<DesignApprovalStatus, DesignApprovalStatus[]> = {
+export const VALID_TRANSITIONS: Record<DesignApprovalStatus, DesignApprovalStatus[]> = {
   DRAFTING: ['FOR_APPROVAL'],
   FOR_APPROVAL: ['APPROVED', 'REVISION_REQUESTED'],
   REVISION_REQUESTED: ['FOR_APPROVAL'],
   APPROVED: [], // terminal
 };
+
+/** Check if a status transition is valid */
+export function isValidTransition(from: DesignApprovalStatus, to: DesignApprovalStatus): boolean {
+  return VALID_TRANSITIONS[from].includes(to);
+}
 
 @Injectable()
 export class DesignService {
@@ -167,8 +172,7 @@ export class DesignService {
 
     // Validate approval status transition
     if (data.approvalStatus && data.approvalStatus !== existing.approvalStatus) {
-      const validTargets = VALID_TRANSITIONS[existing.approvalStatus];
-      if (!validTargets.includes(data.approvalStatus)) {
+      if (!isValidTransition(existing.approvalStatus, data.approvalStatus)) {
         throw new BadRequestException(
           `Cannot transition from ${existing.approvalStatus} to ${data.approvalStatus}.`,
         );
