@@ -1,5 +1,4 @@
-import { DESIGN_APPROVAL_STATUS_LABELS, type DesignApprovalStatus } from '@yamban/shared';
-import { Palette } from 'lucide-react';
+import type { JobStatus } from '@yamban/shared';
 import type { Metadata } from 'next';
 import { PageHeader } from '@/components/ui/page-header';
 import { apiFetch } from '@/lib/api';
@@ -10,7 +9,6 @@ export const metadata: Metadata = { title: 'Design' };
 interface DesignJobRow {
   id: string;
   productionJobId: string;
-  approvalStatus: DesignApprovalStatus;
   orderId: string;
   orderNumber: string;
   orderItemId: string;
@@ -23,34 +21,31 @@ interface DesignJobRow {
   dueDate: string | null;
   assignedToId: string | null;
   assignedToName: string | null;
+  hasFile: boolean;
+  isReady: boolean;
+  productionStatus: JobStatus;
 }
 
 interface DesignBoardData {
-  DRAFTING: DesignJobRow[];
-  FOR_APPROVAL: DesignJobRow[];
-  REVISION_REQUESTED: DesignJobRow[];
-  APPROVED: DesignJobRow[];
+  pending: DesignJobRow[];
+  ready: DesignJobRow[];
 }
 
 export default async function DesignPage() {
   const board = await apiFetch<DesignBoardData>('/design/board');
 
-  const totalJobs =
-    board.DRAFTING.length +
-    board.FOR_APPROVAL.length +
-    board.REVISION_REQUESTED.length +
-    board.APPROVED.length;
+  const totalJobs = board.pending.length + board.ready.length;
 
   return (
     <div className="max-w-full">
       <PageHeader
         title="Design"
         count={totalJobs}
-        description="Manage design jobs and approval workflow"
+        description="Upload final designs and mark ready for print"
       />
 
       <div className="mt-6">
-        <DesignBoard board={board} labels={DESIGN_APPROVAL_STATUS_LABELS} />
+        <DesignBoard board={board} />
       </div>
     </div>
   );

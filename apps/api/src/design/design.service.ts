@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { DesignApprovalStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
-import { eq } from 'drizzle-orm';
+import type { DesignApprovalStatus, JobStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
+import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
   customers,
+  designFiles,
   designJobs,
   orderItems,
   orders,
@@ -16,7 +17,6 @@ import {
 export interface DesignJobRow {
   id: string;
   productionJobId: string;
-  approvalStatus: DesignApprovalStatus;
   orderId: string;
   orderNumber: string;
   orderItemId: string;
@@ -29,20 +29,21 @@ export interface DesignJobRow {
   dueDate: string | null;
   assignedToId: string | null;
   assignedToName: string | null;
+  hasFile: boolean;
+  isReady: boolean;
+  productionStatus: JobStatus;
 }
 
 export interface DesignBoard {
-  DRAFTING: DesignJobRow[];
-  FOR_APPROVAL: DesignJobRow[];
-  REVISION_REQUESTED: DesignJobRow[];
-  APPROVED: DesignJobRow[];
+  pending: DesignJobRow[];
+  ready: DesignJobRow[];
 }
 
 export interface DesignJobDetail extends DesignJobRow {
   requirements: string | null;
   referenceNotes: string | null;
-  revisionCount: number;
-  customerApprovedAt: Date | null;
+  fileId: string | null;
+  fileName: string | null;
 }
 
 // Valid approval status transitions
@@ -71,11 +72,16 @@ export class DesignService {
       .from(users)
       .as('assignee');
 
+    // Subquery to check if design job has a file
+    const fileExists = this.db
+      .select({ designJobId: designFiles.designJobId })
+      .from(designFiles)
+      .as('file_exists');
+
     const rows = await this.db
       .select({
         id: designJobs.id,
         productionJobId: designJobs.productionJobId,
-        approvalStatus: designJobs.approvalStatus,
         orderId: orders.id,
         orderNumber: orders.orderNumber,
         orderItemId: orderItems.id,
@@ -88,6 +94,8 @@ export class DesignService {
         dueDate: orders.dueDate,
         assignedToId: productionJobs.assignedToId,
         assignedToName: assignee.name,
+        productionStatus: productionJobs.status,
+        hasFileRef: fileExists.designJobId,
       })
       .from(designJobs)
       .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
@@ -95,17 +103,42 @@ export class DesignService {
       .innerJoin(orders, eq(orders.id, productionJobs.orderId))
       .innerJoin(customers, eq(customers.id, orders.customerId))
       .innerJoin(products, eq(products.id, orderItems.productId))
-      .leftJoin(assignee, eq(assignee.id, productionJobs.assignedToId));
+      .leftJoin(assignee, eq(assignee.id, productionJobs.assignedToId))
+      .leftJoin(fileExists, eq(fileExists.designJobId, designJobs.id));
 
     const board: DesignBoard = {
-      DRAFTING: [],
-      FOR_APPROVAL: [],
-      REVISION_REQUESTED: [],
-      APPROVED: [],
+      pending: [],
+      ready: [],
     };
 
     for (const row of rows) {
-      board[row.approvalStatus].push(row);
+      const hasFile = row.hasFileRef !== null;
+      const isReady = row.productionStatus === 'COMPLETED';
+      const jobRow: DesignJobRow = {
+        id: row.id,
+        productionJobId: row.productionJobId,
+        orderId: row.orderId,
+        orderNumber: row.orderNumber,
+        orderItemId: row.orderItemId,
+        customerId: row.customerId,
+        customerFirstName: row.customerFirstName,
+        customerLastName: row.customerLastName,
+        productId: row.productId,
+        productName: row.productName,
+        quantity: row.quantity,
+        dueDate: row.dueDate,
+        assignedToId: row.assignedToId,
+        assignedToName: row.assignedToName,
+        hasFile,
+        isReady,
+        productionStatus: row.productionStatus,
+      };
+
+      if (isReady) {
+        board.ready.push(jobRow);
+      } else {
+        board.pending.push(jobRow);
+      }
     }
 
     return board;
@@ -124,11 +157,8 @@ export class DesignService {
       .select({
         id: designJobs.id,
         productionJobId: designJobs.productionJobId,
-        approvalStatus: designJobs.approvalStatus,
         requirements: designJobs.requirements,
         referenceNotes: designJobs.referenceNotes,
-        revisionCount: designJobs.revisionCount,
-        customerApprovedAt: designJobs.customerApprovedAt,
         orderId: orders.id,
         orderNumber: orders.orderNumber,
         orderItemId: orderItems.id,
@@ -141,6 +171,7 @@ export class DesignService {
         dueDate: orders.dueDate,
         assignedToId: productionJobs.assignedToId,
         assignedToName: assignee.name,
+        productionStatus: productionJobs.status,
       })
       .from(designJobs)
       .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
@@ -154,7 +185,26 @@ export class DesignService {
 
     if (!row) throw new NotFoundException('Design job not found.');
 
-    return row;
+    // Get file info
+    const [file] = await this.db
+      .select({
+        id: designFiles.id,
+        fileName: designFiles.fileName,
+      })
+      .from(designFiles)
+      .where(eq(designFiles.designJobId, id))
+      .limit(1);
+
+    const isReady = row.productionStatus === 'COMPLETED';
+    const hasFile = !!file;
+
+    return {
+      ...row,
+      hasFile,
+      isReady,
+      fileId: file?.id ?? null,
+      fileName: file?.fileName ?? null,
+    };
   }
 
   async update(id: string, data: UpdateDesignJobData, userId?: string) {

@@ -1,5 +1,5 @@
 import { formatDate } from '@yamban/shared';
-import { Calendar, User } from 'lucide-react';
+import { Calendar, FileImage, User } from 'lucide-react';
 import Link from 'next/link';
 
 interface DesignJobRow {
@@ -13,6 +13,8 @@ interface DesignJobRow {
   dueDate: string | null;
   assignedToId: string | null;
   assignedToName: string | null;
+  hasFile: boolean;
+  isReady: boolean;
 }
 
 interface JobCardProps {
@@ -45,8 +47,8 @@ export function JobCard({ job }: JobCardProps) {
           </span>
         )}
         <span className="flex items-center gap-1">
-          <User className="size-3" />
-          {job.assignedToName ?? 'Unassigned'}
+          <FileImage className="size-3" />
+          {job.hasFile ? 'File uploaded' : 'No file'}
         </span>
       </div>
     </Link>
