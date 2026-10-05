@@ -9,6 +9,7 @@ import {
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { PrintPageButton } from './print-page-button';
 
 export const metadata: Metadata = { title: 'Print purchase request' };
 
@@ -161,12 +162,7 @@ export default async function PrintPurchaseRequestPage({
 
       {/* Print button - hidden when printing */}
       <div className="mt-8 flex justify-center print:hidden">
-        <button
-          onClick={() => window.print()}
-          className="rounded bg-black px-6 py-2 text-white hover:bg-gray-800"
-        >
-          Print
-        </button>
+        <PrintPageButton />
       </div>
     </div>
   );
