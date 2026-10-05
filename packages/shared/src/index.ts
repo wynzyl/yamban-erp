@@ -14,3 +14,4 @@ export * from './schemas/supplier.js';
 export * from './schemas/machine.js';
 export * from './schemas/settings.js';
 export * from './schemas/costing.js';
+export * from './schemas/product-process.js';

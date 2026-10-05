@@ -1,9 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { CreateProductData, ListQuery, Paginated, UpdateProductData } from '@yamban/shared';
-import { and, asc, desc, eq, ilike, type SQL } from 'drizzle-orm';
+import type {
+  AddProductProcessData,
+  CreateProductData,
+  GarmentSize,
+  ListQuery,
+  Paginated,
+  ProductionStage,
+  UpdateProductData,
+  UpdateProductProcessData,
+} from '@yamban/shared';
+import { and, asc, eq, ilike, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
-import { products, productSizes } from '../db/schema/index.js';
+import { machines, products, productSizes, productSizeProcesses } from '../db/schema/index.js';
 
 export interface ProductListRow {
   id: string;
@@ -20,6 +29,16 @@ export interface ProductSizeRow {
   defaultPrice: string;
 }
 
+export interface ProductProcessRow {
+  id: string;
+  size: GarmentSize;
+  machineId: string;
+  machineName: string;
+  machineStage: ProductionStage;
+  powerKw: string;
+  minutesPerPiece: string;
+}
+
 export interface ProductDetailRow {
   id: string;
   name: string;
@@ -28,6 +47,7 @@ export interface ProductDetailRow {
   createdAt: Date;
   updatedAt: Date;
   sizes: ProductSizeRow[];
+  processes: ProductProcessRow[];
 }
 
 @Injectable()
@@ -108,7 +128,22 @@ export class ProductsService {
       .where(eq(productSizes.productId, id))
       .orderBy(asc(productSizes.size));
 
-    return { ...product, sizes };
+    const processes = await this.db
+      .select({
+        id: productSizeProcesses.id,
+        size: productSizeProcesses.size,
+        machineId: productSizeProcesses.machineId,
+        machineName: machines.name,
+        machineStage: machines.stage,
+        powerKw: machines.powerKw,
+        minutesPerPiece: productSizeProcesses.minutesPerPiece,
+      })
+      .from(productSizeProcesses)
+      .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+      .where(eq(productSizeProcesses.productId, id))
+      .orderBy(asc(productSizeProcesses.size), asc(machines.stage));
+
+    return { ...product, sizes, processes };
   }
 
   async create(data: CreateProductData) {
@@ -176,5 +211,93 @@ export class ProductsService {
 
     // Soft delete by setting active = false
     await this.db.update(products).set({ active: false }).where(eq(products.id, id));
+  }
+
+  /** Add a machine process to a product size. */
+  async addProcess(productId: string, data: AddProductProcessData): Promise<ProductProcessRow> {
+    const [product] = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    if (!product) throw new NotFoundException('Product not found.');
+
+    const [row] = await this.db
+      .insert(productSizeProcesses)
+      .values({
+        productId,
+        size: data.size,
+        machineId: data.machineId,
+        minutesPerPiece: data.minutesPerPiece,
+      })
+      .returning();
+
+    // Fetch with machine info
+    const [process] = await this.db
+      .select({
+        id: productSizeProcesses.id,
+        size: productSizeProcesses.size,
+        machineId: productSizeProcesses.machineId,
+        machineName: machines.name,
+        machineStage: machines.stage,
+        powerKw: machines.powerKw,
+        minutesPerPiece: productSizeProcesses.minutesPerPiece,
+      })
+      .from(productSizeProcesses)
+      .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+      .where(eq(productSizeProcesses.id, row!.id))
+      .limit(1);
+
+    return process!;
+  }
+
+  /** Update a product process. */
+  async updateProcess(
+    productId: string,
+    processId: string,
+    data: UpdateProductProcessData,
+  ): Promise<ProductProcessRow> {
+    const [existing] = await this.db
+      .select({ id: productSizeProcesses.id })
+      .from(productSizeProcesses)
+      .where(eq(productSizeProcesses.id, processId))
+      .limit(1);
+
+    if (!existing) throw new NotFoundException('Process not found.');
+
+    await this.db
+      .update(productSizeProcesses)
+      .set({ minutesPerPiece: data.minutesPerPiece })
+      .where(eq(productSizeProcesses.id, processId));
+
+    const [process] = await this.db
+      .select({
+        id: productSizeProcesses.id,
+        size: productSizeProcesses.size,
+        machineId: productSizeProcesses.machineId,
+        machineName: machines.name,
+        machineStage: machines.stage,
+        powerKw: machines.powerKw,
+        minutesPerPiece: productSizeProcesses.minutesPerPiece,
+      })
+      .from(productSizeProcesses)
+      .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+      .where(eq(productSizeProcesses.id, processId))
+      .limit(1);
+
+    return process!;
+  }
+
+  /** Delete a product process. */
+  async deleteProcess(productId: string, processId: string): Promise<void> {
+    const [existing] = await this.db
+      .select({ id: productSizeProcesses.id })
+      .from(productSizeProcesses)
+      .where(eq(productSizeProcesses.id, processId))
+      .limit(1);
+
+    if (!existing) throw new NotFoundException('Process not found.');
+
+    await this.db.delete(productSizeProcesses).where(eq(productSizeProcesses.id, processId));
   }
 }
