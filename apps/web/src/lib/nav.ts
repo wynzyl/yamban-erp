@@ -24,9 +24,9 @@ export const NAV: NavGroup[] = [
   {
     label: 'Inventory',
     items: [
+      { label: 'Stock', href: '/inventory', phase: 4 },
       { label: 'Materials', href: '/materials', phase: 1 },
       { label: 'Purchase requests', href: '/purchase-requests', phase: 4 },
-      { label: 'Purchases', href: '/purchases', phase: 4 },
       { label: 'Suppliers', href: '/suppliers', phase: 1 },
     ],
   },

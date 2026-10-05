@@ -15,6 +15,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Surface } from '@/components/ui/surface';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
+import { StockActions } from './stock-actions';
 
 export const metadata: Metadata = { title: 'Material stock' };
 
@@ -103,7 +104,7 @@ export default async function MaterialStockPage({
       <PageHeader
         title={material.color ? `${material.name} (${material.color})` : material.name}
       >
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
           {isShort ? (
             <Badge variant="destructive">Short</Badge>
           ) : isLow ? (
@@ -111,6 +112,11 @@ export default async function MaterialStockPage({
           ) : (
             <Badge variant="success">In stock</Badge>
           )}
+          <StockActions
+            materialId={material.id}
+            materialName={material.color ? `${material.name} (${material.color})` : material.name}
+            unit={material.unit}
+          />
         </div>
       </PageHeader>
 

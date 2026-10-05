@@ -1,5 +1,6 @@
 import {
   formatMeasure,
+  INVENTORY_TXN_TYPES,
   INVENTORY_TXN_TYPE_LABELS,
   type InventoryTxnType,
   type Paginated,
@@ -17,6 +18,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
+import { TransactionTypeFilter } from './transaction-type-filter';
 
 export const metadata: Metadata = { title: 'Inventory transactions' };
 
@@ -86,7 +88,9 @@ export default async function TransactionsPage({
         </Button>
       </div>
 
-      <PageHeader title="Inventory transactions" count={data.total} />
+      <PageHeader title="Inventory transactions" count={data.total}>
+        <TransactionTypeFilter />
+      </PageHeader>
 
       <Surface className="mt-6 overflow-hidden">
         {data.items.length === 0 ? (
