@@ -48,7 +48,9 @@ export function AddProcessForm({ productId, machines }: AddProcessFormProps) {
 
     const parsed = addProductProcessSchema.safeParse(raw);
     if (!parsed.success) {
-      setError(z.flattenError(parsed.error).formErrors[0] ?? 'Invalid input.');
+      const flattened = z.flattenError(parsed.error);
+      const firstFieldError = Object.values(flattened.fieldErrors)[0]?.[0];
+      setError(flattened.formErrors[0] ?? firstFieldError ?? 'Invalid input.');
       return;
     }
 
