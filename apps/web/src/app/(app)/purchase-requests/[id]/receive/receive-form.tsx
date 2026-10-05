@@ -1,6 +1,6 @@
 'use client';
 
-import { formatMeasure, type StockUnit, UNIT_SUFFIX } from '@yamban/shared';
+import { formatMeasure, formatMoney, type StockUnit, UNIT_SUFFIX } from '@yamban/shared';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,8 @@ interface FormLine {
   materialColor: string | null;
   materialUnit: StockUnit;
   purchaseUnit: string;
-  purchaseQuantity: string;
-  expectedQuantity: string;
+  purchaseQuantity: string; // qty per purchase unit (e.g., 78 yd per roll)
+  expectedQuantity: string; // total stock qty ordered
   estimatedUnitCost: string;
 }
 
@@ -29,19 +29,26 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Form state for each line
+  // Calculate expected units for each line
+  const linesWithUnits = lines.map((line) => {
+    const purchaseUnitQty = parseFloat(line.purchaseQuantity);
+    const expectedUnits = Math.ceil(parseFloat(line.expectedQuantity) / purchaseUnitQty);
+    return { ...line, expectedUnits, purchaseUnitQty };
+  });
+
+  // Form state - track units received (e.g., 2 rolls) instead of stock qty
   const [lineValues, setLineValues] = useState(
-    lines.map((line) => ({
+    linesWithUnits.map((line) => ({
       purchaseRequestLineId: line.purchaseRequestLineId,
-      receivedQuantity: line.expectedQuantity,
+      receivedUnits: String(line.expectedUnits),
       actualUnitCost: line.estimatedUnitCost,
     })),
   );
   const [reference, setReference] = useState('');
 
-  function handleQuantityChange(index: number, value: string) {
+  function handleUnitsChange(index: number, value: string) {
     setLineValues((prev) =>
-      prev.map((line, i) => (i === index ? { ...line, receivedQuantity: value } : line)),
+      prev.map((line, i) => (i === index ? { ...line, receivedUnits: value } : line)),
     );
   }
 
@@ -55,12 +62,22 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
     e.preventDefault();
     setError(null);
 
-    // Validate all lines have values
-    const invalidLines = lineValues.filter(
-      (line) => !line.receivedQuantity || parseFloat(line.receivedQuantity) <= 0,
-    );
-    if (invalidLines.length > 0) {
-      setError('All lines must have a received quantity greater than 0.');
+    // Convert units to stock quantities and filter out zero quantities
+    const linesToReceive = lineValues
+      .map((lineValue, index) => {
+        const line = linesWithUnits[index]!;
+        const units = parseInt(lineValue.receivedUnits || '0', 10);
+        const stockQty = units * line.purchaseUnitQty;
+        return {
+          purchaseRequestLineId: lineValue.purchaseRequestLineId,
+          receivedQuantity: stockQty.toFixed(3),
+          actualUnitCost: lineValue.actualUnitCost || '0',
+        };
+      })
+      .filter((line) => parseFloat(line.receivedQuantity) > 0);
+
+    if (linesToReceive.length === 0) {
+      setError('Enter at least one line with a quantity to receive.');
       return;
     }
 
@@ -70,7 +87,7 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            lines: lineValues,
+            lines: linesToReceive,
             reference: reference || null,
           }),
         });
@@ -88,6 +105,16 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
     });
   }
 
+  // Calculate totals for summary
+  const totalLines = lineValues.filter((l) => parseInt(l.receivedUnits || '0', 10) > 0).length;
+  const totalValue = lineValues.reduce((sum, lineValue, index) => {
+    const line = linesWithUnits[index]!;
+    const units = parseInt(lineValue.receivedUnits || '0', 10);
+    const stockQty = units * line.purchaseUnitQty;
+    const cost = parseFloat(lineValue.actualUnitCost || '0');
+    return sum + stockQty * cost;
+  }, 0);
+
   return (
     <form onSubmit={handleSubmit}>
       <Surface className="mt-6 overflow-hidden">
@@ -95,12 +122,17 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
           <h2 className="font-medium">Materials to receive</h2>
         </div>
         <div className="divide-y">
-          {lines.map((line, index) => {
+          {linesWithUnits.map((line, index) => {
             const unitSuffix = UNIT_SUFFIX[line.materialUnit];
+            const receivedUnits = parseInt(lineValues[index]?.receivedUnits || '0', 10);
+            const receivedStockQty = receivedUnits * line.purchaseUnitQty;
+            const lineCost = parseFloat(lineValues[index]?.actualUnitCost || '0');
+            const lineTotal = receivedStockQty * lineCost;
+
             return (
               <div key={line.purchaseRequestLineId} className="p-4">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="flex-1">
                     <p className="font-medium">
                       {line.materialName}
                       {line.materialColor && (
@@ -108,31 +140,36 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
                       )}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Expected: {formatMeasure(line.expectedQuantity, unitSuffix)}
+                      Ordered: {line.expectedUnits} {line.purchaseUnit}
+                      <span className="ml-1">({formatMeasure(line.expectedQuantity, unitSuffix)})</span>
                     </p>
                   </div>
-                  <div className="flex gap-4">
+                  <div className="flex items-end gap-4">
                     <div>
-                      <label className="text-sm text-muted-foreground">Received qty ({unitSuffix})</label>
+                      <label className="text-sm text-muted-foreground">Received ({line.purchaseUnit})</label>
                       <input
                         type="number"
-                        step="0.001"
+                        step="1"
                         min="0"
-                        value={lineValues[index]?.receivedQuantity ?? ''}
-                        onChange={(e) => handleQuantityChange(index, e.target.value)}
-                        className="mt-1 block w-32 rounded-control border border-input bg-card px-3 py-2 text-right text-sm tabular-nums"
+                        value={lineValues[index]?.receivedUnits ?? ''}
+                        onChange={(e) => handleUnitsChange(index, e.target.value)}
+                        className="mt-1 block w-20 rounded-control border border-input bg-card px-3 py-2 text-right text-sm tabular-nums"
                       />
                     </div>
                     <div>
-                      <label className="text-sm text-muted-foreground">Unit cost</label>
+                      <label className="text-sm text-muted-foreground">Unit cost (per {unitSuffix})</label>
                       <input
                         type="number"
                         step="0.0001"
                         min="0"
                         value={lineValues[index]?.actualUnitCost ?? ''}
                         onChange={(e) => handleCostChange(index, e.target.value)}
-                        className="mt-1 block w-32 rounded-control border border-input bg-card px-3 py-2 text-right text-sm tabular-nums"
+                        className="mt-1 block w-28 rounded-control border border-input bg-card px-3 py-2 text-right text-sm tabular-nums"
                       />
+                    </div>
+                    <div className="w-24 pb-2 text-right">
+                      <p className="text-sm text-muted-foreground">Total</p>
+                      <p className="mt-1 font-medium tabular-nums">{formatMoney(lineTotal.toFixed(2))}</p>
                     </div>
                   </div>
                 </div>
@@ -143,14 +180,22 @@ export function ReceiveForm({ prId, prNumber, lines }: ReceiveFormProps) {
       </Surface>
 
       <Surface className="mt-4 p-4">
-        <label className="text-sm font-medium">Reference (optional)</label>
-        <input
-          type="text"
-          value={reference}
-          onChange={(e) => setReference(e.target.value)}
-          placeholder="Invoice number, receipt, etc."
-          className="mt-1 block w-full rounded-control border border-input bg-card px-3 py-2 text-sm"
-        />
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="text-sm font-medium">Reference (optional)</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Invoice number, receipt, etc."
+              className="mt-1 block w-full rounded-control border border-input bg-card px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">{totalLines} of {lines.length} lines</p>
+            <p className="text-lg font-semibold">{formatMoney(totalValue.toFixed(2))}</p>
+          </div>
+        </div>
       </Surface>
 
       {error && (
