@@ -61,12 +61,24 @@ export class MaterialsService {
   }
 
   async create(data: CreateMaterialData) {
-    const [row] = await this.db.insert(materials).values(data).returning();
+    const { unitCost, ...rest } = data;
+    const [row] = await this.db
+      .insert(materials)
+      .values({
+        ...rest,
+        averageUnitCost: unitCost ?? '0',
+      })
+      .returning();
     return row!;
   }
 
   async update(id: string, data: UpdateMaterialData) {
-    const [row] = await this.db.update(materials).set(data).where(eq(materials.id, id)).returning();
+    const { unitCost, ...rest } = data;
+    const updateData: Partial<typeof materials.$inferInsert> = { ...rest };
+    if (unitCost !== undefined) {
+      updateData.averageUnitCost = unitCost;
+    }
+    const [row] = await this.db.update(materials).set(updateData).where(eq(materials.id, id)).returning();
     if (!row) throw new NotFoundException('Material not found.');
     return row;
   }

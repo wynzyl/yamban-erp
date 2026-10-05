@@ -16,6 +16,7 @@ interface Material {
   purchaseQuantity: string;
   defaultSupplierId: string | null;
   reorderLevel: string;
+  averageUnitCost: string;
 }
 
 interface Supplier {

@@ -34,6 +34,7 @@ interface MaterialData {
   purchaseQuantity: string;
   defaultSupplierId: string | null;
   reorderLevel: string;
+  averageUnitCost: string;
 }
 
 interface MaterialFormProps {
@@ -57,6 +58,7 @@ export function MaterialForm({ initialData, suppliers }: MaterialFormProps) {
     // Handle empty optional fields
     if (!raw.defaultSupplierId) delete raw.defaultSupplierId;
     if (!raw.reorderLevel) raw.reorderLevel = '0';
+    if (!raw.unitCost) raw.unitCost = '0';
 
     // Same schema the API uses
     const schema = isEdit ? updateMaterialSchema : createMaterialSchema;
@@ -237,6 +239,24 @@ export function MaterialForm({ initialData, suppliers }: MaterialFormProps) {
         {errors.reorderLevel && (
           <p id="reorderLevel-error" className="text-sm text-destructive">
             {errors.reorderLevel[0]}
+          </p>
+        )}
+      </div>
+
+      {/* Unit Cost */}
+      <div className="space-y-2">
+        <Label htmlFor="unitCost">Unit cost (optional)</Label>
+        <Input
+          id="unitCost"
+          name="unitCost"
+          type="text"
+          inputMode="decimal"
+          defaultValue={initialData?.averageUnitCost ?? ''}
+          placeholder="0"
+        />
+        {errors.unitCost && (
+          <p id="unitCost-error" className="text-sm text-destructive">
+            {errors.unitCost[0]}
           </p>
         )}
       </div>
