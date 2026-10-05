@@ -16,6 +16,7 @@ import {
   productionJobs,
   products,
 } from '../db/schema/index.js';
+import { InventoryService } from '../inventory/inventory.service.js';
 
 export interface RosterEntry {
   playerName: string;
@@ -72,7 +73,10 @@ export interface ReadyOrderRow {
 
 @Injectable()
 export class ProductionService {
-  constructor(@InjectDb() private readonly db: Database) {}
+  constructor(
+    @InjectDb() private readonly db: Database,
+    private readonly inventoryService: InventoryService,
+  ) {}
 
   /** List jobs for a specific production stage */
   async listByStage(stage: ProductionStage): Promise<StageJobRow[]> {
@@ -334,6 +338,20 @@ export class ProductionService {
           JSON.stringify({ requiresAcknowledgement: true, message: 'No down payment recorded.' }),
         );
       }
+    }
+
+    // Consume materials for this stage
+    const [jobWithItem] = await this.db
+      .select({ orderItemId: productionJobs.orderItemId })
+      .from(productionJobs)
+      .where(eq(productionJobs.id, jobId))
+      .limit(1);
+
+    if (jobWithItem) {
+      await this.inventoryService.consumeMaterialsForStage(
+        jobWithItem.orderItemId,
+        job.stage,
+      );
     }
 
     // Update job to IN_PROGRESS

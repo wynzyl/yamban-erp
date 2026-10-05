@@ -4,6 +4,7 @@ export * from './schemas/_helpers.js';
 export * from './schemas/auth.js';
 export * from './schemas/customer.js';
 export * from './schemas/design.js';
+export * from './schemas/inventory.js';
 export * from './schemas/material.js';
 export * from './schemas/order.js';
 export * from './schemas/payment.js';

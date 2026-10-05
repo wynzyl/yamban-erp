@@ -19,14 +19,19 @@ import { InjectDb } from '../db/database.module.js';
 import {
   customers,
   designJobs,
+  electricityRates,
+  materials,
   orderItems,
   orderItemSizes,
+  orderMaterials,
   orderRoster,
   orders,
   organizations,
   payments,
   productionJobs,
+  productRecipes,
   products,
+  recipeMaterials,
 } from '../db/schema/index.js';
 
 export interface OrderListRow {
@@ -410,19 +415,102 @@ export class OrdersService {
       }
     }
 
-    // When confirming, create production jobs in a transaction
+    // When confirming, create production jobs and material snapshots in a transaction
     if (data.status === 'CONFIRMED' && existing.status === 'QUOTATION') {
       return await this.db.transaction(async (tx) => {
+        // Get current electricity rate
+        const [currentRate] = await tx
+          .select({ ratePerKwh: electricityRates.ratePerKwh })
+          .from(electricityRates)
+          .orderBy(desc(electricityRates.effectiveDate))
+          .limit(1);
+
+        // Set electricity rate on order
+        if (currentRate) {
+          updates.electricityRatePerKwh = currentRate.ratePerKwh;
+        }
+
         const [updated] = await tx.update(orders).set(updates).where(eq(orders.id, id)).returning();
 
-        // Fetch all order items
+        // Fetch all order items with their sizes
         const items = await tx
-          .select({ id: orderItems.id, quantity: orderItems.quantity })
+          .select({
+            id: orderItems.id,
+            productId: orderItems.productId,
+            quantity: orderItems.quantity,
+          })
           .from(orderItems)
           .where(eq(orderItems.orderId, id));
 
-        // Create production jobs for each item and stage
+        // Track if any materials are short
+        let hasShortage = false;
+
+        // Create material snapshots and production jobs for each item
         for (const item of items) {
+          // Get sizes for this item
+          const sizes = await tx
+            .select({ size: orderItemSizes.size, quantity: orderItemSizes.quantity })
+            .from(orderItemSizes)
+            .where(eq(orderItemSizes.orderItemId, item.id));
+
+          // For each size, look up the recipe and copy materials
+          for (const sizeRow of sizes) {
+            // Find the recipe for this product+size
+            const [recipe] = await tx
+              .select({ id: productRecipes.id })
+              .from(productRecipes)
+              .where(
+                and(
+                  eq(productRecipes.productId, item.productId),
+                  eq(productRecipes.size, sizeRow.size),
+                ),
+              )
+              .limit(1);
+
+            if (recipe) {
+              // Get recipe materials
+              const recipeMatRows = await tx
+                .select({
+                  materialId: recipeMaterials.materialId,
+                  quantityPerPiece: recipeMaterials.quantityPerPiece,
+                  stage: recipeMaterials.stage,
+                  unit: materials.unit,
+                  averageUnitCost: materials.averageUnitCost,
+                  stockOnHand: materials.stockOnHand,
+                })
+                .from(recipeMaterials)
+                .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
+                .where(eq(recipeMaterials.recipeId, recipe.id));
+
+              // Copy each material to orderMaterials
+              for (const mat of recipeMatRows) {
+                const qtyPerPiece = parseFloat(mat.quantityPerPiece);
+                const totalQty = qtyPerPiece * sizeRow.quantity;
+                const unitCost = parseFloat(mat.averageUnitCost);
+                const totalCost = totalQty * unitCost;
+
+                await tx.insert(orderMaterials).values({
+                  orderItemId: item.id,
+                  materialId: mat.materialId,
+                  size: sizeRow.size,
+                  quantityPerPiece: mat.quantityPerPiece,
+                  totalQuantity: totalQty.toFixed(3),
+                  unit: mat.unit,
+                  unitCost: mat.averageUnitCost,
+                  totalCost: totalCost.toFixed(2),
+                  stage: mat.stage,
+                });
+
+                // Check if this material will create a shortage
+                const stock = parseFloat(mat.stockOnHand);
+                if (stock < totalQty) {
+                  hasShortage = true;
+                }
+              }
+            }
+          }
+
+          // Create production jobs for each stage
           for (const [i, stage] of PRODUCTION_STAGES.entries()) {
             const [job] = await tx
               .insert(productionJobs)
@@ -442,6 +530,14 @@ export class OrdersService {
               });
             }
           }
+        }
+
+        // Update material status based on shortage check
+        if (hasShortage) {
+          await tx
+            .update(orders)
+            .set({ materialStatus: 'SHORT' })
+            .where(eq(orders.id, id));
         }
 
         return updated!;
@@ -950,23 +1046,102 @@ export class OrdersService {
     if (existing.status !== 'QUOTATION') return; // Already confirmed or other status
 
     await this.db.transaction(async (tx) => {
+      // Get current electricity rate
+      const [currentRate] = await tx
+        .select({ ratePerKwh: electricityRates.ratePerKwh })
+        .from(electricityRates)
+        .orderBy(desc(electricityRates.effectiveDate))
+        .limit(1);
+
       // Update order status to CONFIRMED
       await tx
         .update(orders)
         .set({
           status: 'CONFIRMED',
           confirmedAt: new Date(),
+          electricityRatePerKwh: currentRate?.ratePerKwh ?? null,
         })
         .where(eq(orders.id, id));
 
-      // Fetch all order items
+      // Fetch all order items with product info
       const items = await tx
-        .select({ id: orderItems.id, quantity: orderItems.quantity })
+        .select({
+          id: orderItems.id,
+          productId: orderItems.productId,
+          quantity: orderItems.quantity,
+        })
         .from(orderItems)
         .where(eq(orderItems.orderId, id));
 
-      // Create production jobs for each item and stage
+      // Track if any materials are short
+      let hasShortage = false;
+
+      // Create material snapshots and production jobs for each item
       for (const item of items) {
+        // Get sizes for this item
+        const sizes = await tx
+          .select({ size: orderItemSizes.size, quantity: orderItemSizes.quantity })
+          .from(orderItemSizes)
+          .where(eq(orderItemSizes.orderItemId, item.id));
+
+        // For each size, look up the recipe and copy materials
+        for (const sizeRow of sizes) {
+          // Find the recipe for this product+size
+          const [recipe] = await tx
+            .select({ id: productRecipes.id })
+            .from(productRecipes)
+            .where(
+              and(
+                eq(productRecipes.productId, item.productId),
+                eq(productRecipes.size, sizeRow.size),
+              ),
+            )
+            .limit(1);
+
+          if (recipe) {
+            // Get recipe materials
+            const recipeMatRows = await tx
+              .select({
+                materialId: recipeMaterials.materialId,
+                quantityPerPiece: recipeMaterials.quantityPerPiece,
+                stage: recipeMaterials.stage,
+                unit: materials.unit,
+                averageUnitCost: materials.averageUnitCost,
+                stockOnHand: materials.stockOnHand,
+              })
+              .from(recipeMaterials)
+              .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
+              .where(eq(recipeMaterials.recipeId, recipe.id));
+
+            // Copy each material to orderMaterials
+            for (const mat of recipeMatRows) {
+              const qtyPerPiece = parseFloat(mat.quantityPerPiece);
+              const totalQty = qtyPerPiece * sizeRow.quantity;
+              const unitCost = parseFloat(mat.averageUnitCost);
+              const totalCost = totalQty * unitCost;
+
+              await tx.insert(orderMaterials).values({
+                orderItemId: item.id,
+                materialId: mat.materialId,
+                size: sizeRow.size,
+                quantityPerPiece: mat.quantityPerPiece,
+                totalQuantity: totalQty.toFixed(3),
+                unit: mat.unit,
+                unitCost: mat.averageUnitCost,
+                totalCost: totalCost.toFixed(2),
+                stage: mat.stage,
+              });
+
+              // Check if this material will create a shortage
+              const stock = parseFloat(mat.stockOnHand);
+              if (stock < totalQty) {
+                hasShortage = true;
+              }
+            }
+          }
+        }
+
+        // Create production jobs for each stage
         for (const [i, stage] of PRODUCTION_STAGES.entries()) {
           const [job] = await tx
             .insert(productionJobs)
@@ -986,6 +1161,14 @@ export class OrdersService {
             });
           }
         }
+      }
+
+      // Update material status based on shortage check
+      if (hasShortage) {
+        await tx
+          .update(orders)
+          .set({ materialStatus: 'SHORT' })
+          .where(eq(orders.id, id));
       }
     });
   }
