@@ -156,13 +156,12 @@ export const productSizeProcesses = pgTable(
     productId: uuid()
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
-    size: garmentSize().notNull(),
     machineId: uuid()
       .notNull()
       .references(() => machines.id, { onDelete: 'restrict' }),
     minutesPerPiece: numeric({ precision: 8, scale: 2 }).notNull(),
   },
-  (t) => [uniqueIndex('product_size_processes_uq').on(t.productId, t.size, t.machineId)],
+  (t) => [uniqueIndex('product_size_processes_uq').on(t.productId, t.machineId)],
 );
 
 export const electricityRates = pgTable('electricity_rates', {

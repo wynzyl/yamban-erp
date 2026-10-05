@@ -31,7 +31,6 @@ export interface ProductSizeRow {
 
 export interface ProductProcessRow {
   id: string;
-  size: GarmentSize;
   machineId: string;
   machineName: string;
   machineStage: ProductionStage;
@@ -131,7 +130,6 @@ export class ProductsService {
     const processes = await this.db
       .select({
         id: productSizeProcesses.id,
-        size: productSizeProcesses.size,
         machineId: productSizeProcesses.machineId,
         machineName: machines.name,
         machineStage: machines.stage,
@@ -141,7 +139,7 @@ export class ProductsService {
       .from(productSizeProcesses)
       .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
       .where(eq(productSizeProcesses.productId, id))
-      .orderBy(asc(productSizeProcesses.size), asc(machines.stage));
+      .orderBy(asc(machines.stage));
 
     return { ...product, sizes, processes };
   }
@@ -213,7 +211,7 @@ export class ProductsService {
     await this.db.update(products).set({ active: false }).where(eq(products.id, id));
   }
 
-  /** Add a machine process to a product size. */
+  /** Add a machine process to a product. */
   async addProcess(productId: string, data: AddProductProcessData): Promise<ProductProcessRow> {
     const [product] = await this.db
       .select({ id: products.id })
@@ -226,7 +224,6 @@ export class ProductsService {
       .insert(productSizeProcesses)
       .values({
         productId,
-        size: data.size,
         machineId: data.machineId,
         minutesPerPiece: data.minutesPerPiece,
       })
@@ -236,7 +233,6 @@ export class ProductsService {
     const [process] = await this.db
       .select({
         id: productSizeProcesses.id,
-        size: productSizeProcesses.size,
         machineId: productSizeProcesses.machineId,
         machineName: machines.name,
         machineStage: machines.stage,
@@ -273,7 +269,6 @@ export class ProductsService {
     const [process] = await this.db
       .select({
         id: productSizeProcesses.id,
-        size: productSizeProcesses.size,
         machineId: productSizeProcesses.machineId,
         machineName: machines.name,
         machineStage: machines.stage,

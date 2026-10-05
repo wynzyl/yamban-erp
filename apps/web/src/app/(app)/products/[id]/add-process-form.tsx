@@ -2,11 +2,8 @@
 
 import {
   addProductProcessSchema,
-  GARMENT_SIZES,
-  type GarmentSize,
   type ProductionStage,
   PRODUCTION_STAGE_LABELS,
-  SIZE_LABELS,
 } from '@yamban/shared';
 import { Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -28,10 +25,9 @@ interface Machine {
 interface AddProcessFormProps {
   productId: string;
   machines: Machine[];
-  availableSizes: GarmentSize[];
 }
 
-export function AddProcessForm({ productId, machines, availableSizes }: AddProcessFormProps) {
+export function AddProcessForm({ productId, machines }: AddProcessFormProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -75,7 +71,7 @@ export function AddProcessForm({ productId, machines, availableSizes }: AddProce
     setPending(false);
   }
 
-  if (availableSizes.length === 0 || machines.length === 0) {
+  if (machines.length === 0) {
     return null;
   }
 
@@ -92,18 +88,6 @@ export function AddProcessForm({ productId, machines, availableSizes }: AddProce
             <DialogTitle>Add machine process</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="size">Size</Label>
-              <NativeSelect id="size" name="size" required>
-                <option value="">Select size</option>
-                {availableSizes.map((size) => (
-                  <option key={size} value={size}>
-                    {SIZE_LABELS[size]}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="machineId">Machine</Label>
               <NativeSelect id="machineId" name="machineId" required>

@@ -38,7 +38,6 @@ interface ProductSize {
 
 interface ProductProcess {
   id: string;
-  size: GarmentSize;
   machineId: string;
   machineName: string;
   machineStage: ProductionStage;
@@ -78,16 +77,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     notFound();
   }
 
-  // Get sizes that don't have all machines configured
-  const configuredSizeMachines = new Set(
-    product.processes.map((p) => `${p.size}-${p.machineId}`),
-  );
-  const availableSizes = product.sizes
-    .map((s) => s.size)
-    .filter((size) => {
-      // Check if this size can have more machines
-      return machines.some((m) => !configuredSizeMachines.has(`${size}-${m.id}`));
-    });
+  // Get machines that aren't already configured for this product
+  const configuredMachineIds = new Set(product.processes.map((p) => p.machineId));
+  const availableMachines = machines.filter((m) => !configuredMachineIds.has(m.id));
 
   return (
     <div className="max-w-3xl">
@@ -203,8 +195,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           <h2 className="font-medium">Machine processes</h2>
           <AddProcessForm
             productId={product.id}
-            machines={machines}
-            availableSizes={availableSizes}
+            machines={availableMachines}
           />
         </div>
         {product.processes.length === 0 ? (
@@ -215,7 +206,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Size</TableHead>
                 <TableHead>Machine</TableHead>
                 <TableHead>Stage</TableHead>
                 <TableHead className="text-right">Time</TableHead>
@@ -225,8 +215,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
             <TableBody>
               {product.processes.map((process) => (
                 <TableRow key={process.id}>
-                  <TableCell className="font-medium">{SIZE_LABELS[process.size]}</TableCell>
-                  <TableCell>{process.machineName}</TableCell>
+                  <TableCell className="font-medium">{process.machineName}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{PRODUCTION_STAGE_LABELS[process.machineStage]}</Badge>
                   </TableCell>

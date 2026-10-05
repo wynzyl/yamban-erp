@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { GARMENT_SIZES } from '../enums.js';
 
 /** Minutes per piece (up to 8,2 precision). */
 const minutesPerPiece = z
@@ -8,7 +7,6 @@ const minutesPerPiece = z
   .refine((v) => parseFloat(v) > 0, 'Time must be greater than zero.');
 
 export const addProductProcessSchema = z.object({
-  size: z.enum(GARMENT_SIZES, { message: 'Select a size.' }),
   machineId: z.uuid('Select a machine.'),
   minutesPerPiece,
 });

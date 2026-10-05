@@ -512,22 +512,21 @@ export class OrdersService {
               }
             }
 
-            // Copy machine processes for this product+size
-            const processes = await tx
-              .select({
-                machineId: productSizeProcesses.machineId,
-                minutesPerPiece: productSizeProcesses.minutesPerPiece,
-                powerKw: machines.powerKw,
-              })
-              .from(productSizeProcesses)
-              .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
-              .where(
-                and(
-                  eq(productSizeProcesses.productId, item.productId),
-                  eq(productSizeProcesses.size, sizeRow.size),
-                ),
-              );
+          }
 
+          // Copy machine processes for this product (processes are per-product, not per-size)
+          const processes = await tx
+            .select({
+              machineId: productSizeProcesses.machineId,
+              minutesPerPiece: productSizeProcesses.minutesPerPiece,
+              powerKw: machines.powerKw,
+            })
+            .from(productSizeProcesses)
+            .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+            .where(eq(productSizeProcesses.productId, item.productId));
+
+          // Create orderItemProcesses for each size with that size's quantity
+          for (const sizeRow of sizes) {
             for (const proc of processes) {
               await tx.insert(orderItemProcesses).values({
                 orderItemId: item.id,
@@ -1170,22 +1169,21 @@ export class OrdersService {
             }
           }
 
-          // Copy machine processes for this product+size
-          const processes = await tx
-            .select({
-              machineId: productSizeProcesses.machineId,
-              minutesPerPiece: productSizeProcesses.minutesPerPiece,
-              powerKw: machines.powerKw,
-            })
-            .from(productSizeProcesses)
-            .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
-            .where(
-              and(
-                eq(productSizeProcesses.productId, item.productId),
-                eq(productSizeProcesses.size, sizeRow.size),
-              ),
-            );
+        }
 
+        // Copy machine processes for this product (processes are per-product, not per-size)
+        const processes = await tx
+          .select({
+            machineId: productSizeProcesses.machineId,
+            minutesPerPiece: productSizeProcesses.minutesPerPiece,
+            powerKw: machines.powerKw,
+          })
+          .from(productSizeProcesses)
+          .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+          .where(eq(productSizeProcesses.productId, item.productId));
+
+        // Create orderItemProcesses for each size with that size's quantity
+        for (const sizeRow of sizes) {
           for (const proc of processes) {
             await tx.insert(orderItemProcesses).values({
               orderItemId: item.id,
