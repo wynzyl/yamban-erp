@@ -68,7 +68,7 @@ export function AddItemForm({ orderId }: AddItemFormProps) {
       try {
         const res = await fetch('/api/products?pageSize=100', { credentials: 'include' });
         if (res.ok) {
-          const data = await res.json();
+          const { data } = await res.json();
           setProducts(data.items || []);
         }
       } finally {
@@ -87,7 +87,7 @@ export function AddItemForm({ orderId }: AddItemFormProps) {
 
     const res = await fetch(`/api/products/${id}`, { credentials: 'include' });
     if (!res.ok) return;
-    const productWithSizes: ProductWithSizes = await res.json();
+    const { data: productWithSizes }: { data: ProductWithSizes } = await res.json();
 
     const newSizes: OrderItemSize[] = productWithSizes.sizes.map((s) => ({
       size: s.size as GarmentSize,

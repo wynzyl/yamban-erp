@@ -81,13 +81,13 @@ export function OrderForm() {
           fetch('/api/products?pageSize=100', { credentials: 'include' }),
         ]);
         if (custRes.ok) {
-          const custData = await custRes.json();
+          const { data: custData } = await custRes.json();
           setCustomers(custData.items || []);
         } else {
           console.error('Failed to fetch customers:', custRes.status);
         }
         if (prodRes.ok) {
-          const prodData = await prodRes.json();
+          const { data: prodData } = await prodRes.json();
           setProducts(prodData.items || []);
         } else {
           console.error('Failed to fetch products:', prodRes.status);
@@ -112,7 +112,7 @@ export function OrderForm() {
     // Fetch product with sizes
     const res = await fetch(`/api/products/${productId}`, { credentials: 'include' });
     if (!res.ok) return;
-    const productWithSizes: ProductWithSizes = await res.json();
+    const { data: productWithSizes }: { data: ProductWithSizes } = await res.json();
 
     // Create sizes array with default prices
     const sizes: OrderItemSize[] = productWithSizes.sizes.map((s) => ({
@@ -332,7 +332,7 @@ export function OrderForm() {
     });
 
     if (res.ok) {
-      const order = await res.json();
+      const { data: order } = await res.json();
       startTransition(() => router.push(`/orders/${order.id}`));
     } else {
       const text = await res.text();

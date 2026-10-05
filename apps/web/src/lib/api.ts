@@ -37,7 +37,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     };
     throw new ApiError(res.status, body.message ?? res.statusText, body.fieldErrors);
   }
-  return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
+  if (res.status === 204) return undefined as T;
+  const body = (await res.json()) as { data: T };
+  return body.data;
 }
 
 /** The signed-in user, or null. */

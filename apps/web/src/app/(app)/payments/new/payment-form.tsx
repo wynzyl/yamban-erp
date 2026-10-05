@@ -49,7 +49,7 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
       try {
         const res = await fetch('/api/orders?pageSize=100', { credentials: 'include' });
         if (res.ok) {
-          const data = await res.json();
+          const { data } = await res.json();
           setOrders(data.items);
           if (defaultOrderId) {
             const order = data.items.find((o: OrderOption) => o.id === defaultOrderId);
@@ -101,7 +101,7 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
     });
 
     if (res.ok) {
-      const payment = await res.json();
+      const { data: payment } = await res.json();
       startTransition(() => router.push(`/payments/${payment.id}`));
     } else {
       const err = await res.json().catch(() => ({}));

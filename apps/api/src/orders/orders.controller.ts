@@ -12,12 +12,14 @@ import {
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { OrdersService } from './orders.service.js';
+import { ResponseMessage } from '../common/decorators/response-message.decorator.js';
 
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
   @Get()
+  @ResponseMessage('Orders retrieved successfully')
   list(
     @Query(new ZodValidationPipe(listQuerySchema.extend({ status: listQuerySchema.shape.search })))
     query: { page: number; pageSize: number; search?: string; status?: string },

@@ -1,10 +1,11 @@
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor.js';
 import { env } from './config/env.js';
 import { mcp } from './mcp/mcp.strategy.js';
 
@@ -19,6 +20,9 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
   app.enableCors({ origin: env.WEB_ORIGIN, credentials: true });
   app.enableShutdownHooks();
+
+  // Global response interceptor
+  app.useGlobalInterceptors(new TransformResponseInterceptor(app.get(Reflector)));
 
   // Set up MCP server
   mcp.setHttpAdapter(app.getHttpAdapter());

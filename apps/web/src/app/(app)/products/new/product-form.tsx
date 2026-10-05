@@ -103,7 +103,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
     });
 
     if (res.ok) {
-      const product = await res.json();
+      const { data: product } = await res.json();
       startTransition(() => router.push(`/products/${product.id}`));
     } else {
       const err = await res.json().catch(() => ({}));
