@@ -26,10 +26,7 @@ interface Product {
   id: string;
   name: string;
   description: string | null;
-}
-
-interface ProductWithSizes extends Product {
-  sizes: { size: string; defaultPrice: string }[];
+  defaultPrice: string;
 }
 
 interface OrderItemSize {
@@ -78,26 +75,20 @@ export function AddItemForm({ orderId }: AddItemFormProps) {
     fetchProducts();
   }, []);
 
-  async function handleProductChange(id: string) {
+  function handleProductChange(id: string) {
     const product = products.find((p) => p.id === id);
     if (!product) return;
 
     setProductId(id);
     setProductName(product.name);
 
-    const res = await fetch(`/api/products/${id}`, { credentials: 'include' });
-    if (!res.ok) return;
-    const { data: productWithSizes }: { data: ProductWithSizes } = await res.json();
-
-    const newSizes: OrderItemSize[] = productWithSizes.sizes.map((s) => ({
-      size: s.size as GarmentSize,
+    // Initialize with common sizes using the product's default price
+    const defaultPrice = product.defaultPrice || '0';
+    const newSizes: OrderItemSize[] = GARMENT_SIZES.map((size) => ({
+      size,
       quantity: 0,
-      unitPrice: s.defaultPrice || '0',
+      unitPrice: defaultPrice,
     }));
-
-    if (newSizes.length === 0) {
-      newSizes.push({ size: 'M', quantity: 1, unitPrice: '0' });
-    }
 
     setSizes(newSizes);
     setRoster([]);
@@ -121,7 +112,9 @@ export function AddItemForm({ orderId }: AddItemFormProps) {
 
   function addSize(size: GarmentSize) {
     if (sizes.some((s) => s.size === size)) return;
-    setSizes([...sizes, { size, quantity: 1, unitPrice: '0' }]);
+    const product = products.find((p) => p.id === productId);
+    const defaultPrice = product?.defaultPrice || '0';
+    setSizes([...sizes, { size, quantity: 1, unitPrice: defaultPrice }]);
   }
 
   function removeSize(index: number) {
