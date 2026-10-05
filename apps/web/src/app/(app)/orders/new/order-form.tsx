@@ -32,12 +32,6 @@ interface Product {
   defaultPrice: string;
 }
 
-interface OrderItemSize {
-  size: GarmentSize;
-  quantity: number;
-  unitPrice: string;
-}
-
 interface RosterEntry {
   playerName: string;
   jerseyNumber: string;
@@ -48,7 +42,8 @@ interface OrderItem {
   productId: string;
   productName: string;
   description: string;
-  sizes: OrderItemSize[];
+  quantity: number;
+  unitPrice: string;
   roster: RosterEntry[];
   rosterExpanded: boolean;
 }
@@ -80,14 +75,10 @@ export function OrderForm() {
         if (custRes.ok) {
           const { data: custData } = await custRes.json();
           setCustomers(custData.items || []);
-        } else {
-          console.error('Failed to fetch customers:', custRes.status);
         }
         if (prodRes.ok) {
           const { data: prodData } = await prodRes.json();
           setProducts(prodData.items || []);
-        } else {
-          console.error('Failed to fetch products:', prodRes.status);
         }
       } finally {
         setLoadingData(false);
@@ -106,21 +97,14 @@ export function OrderForm() {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
 
-    // Initialize with all sizes using the product's default price
-    const defaultPrice = product.defaultPrice || '0';
-    const sizes: OrderItemSize[] = GARMENT_SIZES.map((size) => ({
-      size,
-      quantity: 0,
-      unitPrice: defaultPrice,
-    }));
-
     setItems([
       ...items,
       {
         productId: product.id,
         productName: product.name,
         description: '',
-        sizes,
+        quantity: 1,
+        unitPrice: product.defaultPrice || '0',
         roster: [],
         rosterExpanded: false,
       },
@@ -131,56 +115,9 @@ export function OrderForm() {
     setItems(items.filter((_, i) => i !== index));
   }
 
-  function updateItemDescription(index: number, description: string) {
+  function updateItem(index: number, field: keyof OrderItem, value: string | number) {
     setItems(
-      items.map((item, i) => (i === index ? { ...item, description } : item)),
-    );
-  }
-
-  function updateItemSize(
-    itemIndex: number,
-    sizeIndex: number,
-    field: 'quantity' | 'unitPrice',
-    value: string,
-  ) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        const newSizes = item.sizes.map((s, si) => {
-          if (si !== sizeIndex) return s;
-          if (field === 'quantity') {
-            return { ...s, quantity: parseInt(value) || 0 };
-          }
-          return { ...s, unitPrice: value };
-        });
-        return { ...item, sizes: newSizes };
-      }),
-    );
-  }
-
-  function addSizeToItem(itemIndex: number, size: GarmentSize) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        // Check if size already exists
-        if (item.sizes.some((s) => s.size === size)) return item;
-        // Get the product's default price
-        const product = products.find((p) => p.id === item.productId);
-        const defaultPrice = product?.defaultPrice || '0';
-        return {
-          ...item,
-          sizes: [...item.sizes, { size, quantity: 1, unitPrice: defaultPrice }],
-        };
-      }),
-    );
-  }
-
-  function removeSizeFromItem(itemIndex: number, sizeIndex: number) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        return { ...item, sizes: item.sizes.filter((_, si) => si !== sizeIndex) };
-      }),
+      items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
   }
 
@@ -196,11 +133,9 @@ export function OrderForm() {
     setItems(
       items.map((item, i) => {
         if (i !== itemIndex) return item;
-        // Default to first available size
-        const defaultSize = item.sizes[0]?.size ?? 'M';
         return {
           ...item,
-          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: defaultSize }],
+          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize }],
           rosterExpanded: true,
         };
       }),
@@ -236,12 +171,7 @@ export function OrderForm() {
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => {
-    return (
-      sum +
-      item.sizes.reduce((sizeSum, s) => {
-        return sizeSum + s.quantity * parseFloat(s.unitPrice || '0');
-      }, 0)
-    );
+    return sum + item.quantity * parseFloat(item.unitPrice || '0');
   }, 0);
   const discountNum = parseFloat(discount) || 0;
   const total = Math.max(0, subtotal - discountNum);
@@ -250,41 +180,51 @@ export function OrderForm() {
     e.preventDefault();
     setErrors({});
 
-    // Early validation: check if any items have quantities
-    const hasAnyQuantity = items.some((item) =>
-      item.sizes.some((s) => s.quantity > 0),
-    );
-    if (!hasAnyQuantity) {
-      setErrors({ form: 'Add at least one item with a quantity.' });
+    if (items.length === 0) {
+      setErrors({ form: 'Add at least one item.' });
       return;
     }
 
-    // Build items for submission (filter out sizes with 0 quantity, then filter out items with no sizes)
-    const orderItems = items
-      .map((item) => {
-        const filteredSizes = item.sizes
-          .filter((s) => s.quantity > 0)
-          .map((s) => ({
-            size: s.size,
-            quantity: s.quantity,
-            unitPrice: s.unitPrice,
-          }));
-        // Filter roster to only include entries with names
-        const filteredRoster = item.roster
-          .filter((r) => r.playerName.trim())
-          .map((r) => ({
-            playerName: r.playerName.trim(),
-            jerseyNumber: r.jerseyNumber.trim() || undefined,
-            size: r.size,
-          }));
-        return {
-          productId: item.productId,
-          description: item.description || undefined,
-          sizes: filteredSizes,
-          roster: filteredRoster,
-        };
-      })
-      .filter((item) => item.sizes.length > 0);
+    // Build items for submission
+    // Convert quantity + roster to sizes array for backend compatibility
+    const orderItems = items.map((item) => {
+      // Count sizes from roster entries
+      const sizeCounts = new Map<GarmentSize, number>();
+      for (const r of item.roster) {
+        if (r.playerName.trim()) {
+          sizeCounts.set(r.size, (sizeCounts.get(r.size) || 0) + 1);
+        }
+      }
+
+      // If roster has entries, use roster counts for sizes
+      // Otherwise, create a single "ONE_SIZE" entry with full quantity
+      let sizes: { size: GarmentSize; quantity: number; unitPrice: string }[];
+      if (sizeCounts.size > 0) {
+        sizes = Array.from(sizeCounts.entries()).map(([size, qty]) => ({
+          size,
+          quantity: qty,
+          unitPrice: item.unitPrice,
+        }));
+      } else {
+        // No roster - use ONE_SIZE or M as default
+        sizes = [{ size: 'ONE_SIZE' as GarmentSize, quantity: item.quantity, unitPrice: item.unitPrice }];
+      }
+
+      const filteredRoster = item.roster
+        .filter((r) => r.playerName.trim())
+        .map((r) => ({
+          playerName: r.playerName.trim(),
+          jerseyNumber: r.jerseyNumber.trim() || undefined,
+          size: r.size,
+        }));
+
+      return {
+        productId: item.productId,
+        description: item.description || undefined,
+        sizes,
+        roster: filteredRoster,
+      };
+    });
 
     const data = {
       customerId,
@@ -297,23 +237,12 @@ export function OrderForm() {
 
     const result = createOrderSchema.safeParse(data);
     if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      for (const issue of result.error.issues) {
-        const path = issue.path.join('.');
-        if (!fieldErrors[path]) {
-          fieldErrors[path] = issue.message;
-        }
-      }
-      setErrors(fieldErrors);
-      // Show first error
       const firstError = result.error.issues[0];
       if (firstError) {
-        setErrors((prev) => ({ ...prev, form: firstError.message }));
+        setErrors({ form: firstError.message });
       }
       return;
     }
-
-    console.log('Submitting order data:', JSON.stringify(result.data, null, 2));
 
     const res = await fetch('/api/orders', {
       method: 'POST',
@@ -327,12 +256,11 @@ export function OrderForm() {
       startTransition(() => router.push(`/orders/${order.id}`));
     } else {
       const text = await res.text();
-      console.error('Order creation failed:', res.status, text);
       try {
         const err = JSON.parse(text);
         setErrors({ form: err.message || 'Failed to create order.' });
       } catch {
-        setErrors({ form: `Server error (${res.status}): ${text.slice(0, 200)}` });
+        setErrors({ form: `Server error (${res.status})` });
       }
     }
   }
@@ -419,9 +347,7 @@ export function OrderForm() {
             {items.map((item, itemIndex) => (
               <div key={itemIndex} className="rounded-lg border border-border p-4">
                 <div className="mb-3 flex items-start justify-between">
-                  <div>
-                    <h3 className="font-medium">{item.productName}</h3>
-                  </div>
+                  <h3 className="font-medium">{item.productName}</h3>
                   <Button
                     type="button"
                     variant="ghost"
@@ -438,103 +364,37 @@ export function OrderForm() {
                   <Input
                     placeholder="Optional description..."
                     value={item.description}
-                    onChange={(e) =>
-                      updateItemDescription(itemIndex, e.target.value)
-                    }
+                    onChange={(e) => updateItem(itemIndex, 'description', e.target.value)}
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Sizes</Label>
-                    <Select
-                      onValueChange={(size) =>
-                        addSizeToItem(itemIndex, size as GarmentSize)
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-[120px]">
-                        <Plus className="mr-1 size-3" />
-                        <SelectValue placeholder="Add size" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GARMENT_SIZES.filter(
-                          (s) => !item.sizes.some((is) => is.size === s),
-                        ).map((size) => (
-                          <SelectItem key={size} value={size}>
-                            {SIZE_LABELS[size]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="flex items-center gap-4">
+                  <div className="space-y-2">
+                    <Label>Quantity</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      className="w-24"
+                      value={item.quantity || ''}
+                      onChange={(e) => updateItem(itemIndex, 'quantity', parseInt(e.target.value) || 0)}
+                    />
                   </div>
-
-                  {item.sizes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Add at least one size.
+                  <div className="space-y-2">
+                    <Label>Unit price</Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      className="w-32"
+                      value={item.unitPrice}
+                      onChange={(e) => updateItem(itemIndex, 'unitPrice', e.target.value)}
+                    />
+                  </div>
+                  <div className="ml-auto space-y-2">
+                    <Label className="text-muted-foreground">Subtotal</Label>
+                    <p className="py-2 text-sm font-medium yb-money">
+                      {formatMoney(item.quantity * parseFloat(item.unitPrice || '0'))}
                     </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {item.sizes.map((size, sizeIndex) => (
-                        <div
-                          key={size.size}
-                          className="flex items-center gap-3"
-                        >
-                          <span className="w-16 text-sm font-medium">
-                            {SIZE_LABELS[size.size]}
-                          </span>
-                          <Input
-                            type="number"
-                            min="0"
-                            placeholder="Qty"
-                            className="w-20"
-                            value={size.quantity || ''}
-                            onChange={(e) =>
-                              updateItemSize(
-                                itemIndex,
-                                sizeIndex,
-                                'quantity',
-                                e.target.value,
-                              )
-                            }
-                          />
-                          <span className="text-sm text-muted-foreground">
-                            @
-                          </span>
-                          <Input
-                            type="text"
-                            inputMode="decimal"
-                            placeholder="Price"
-                            className="w-24"
-                            value={size.unitPrice}
-                            onChange={(e) =>
-                              updateItemSize(
-                                itemIndex,
-                                sizeIndex,
-                                'unitPrice',
-                                e.target.value,
-                              )
-                            }
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() =>
-                              removeSizeFromItem(itemIndex, sizeIndex)
-                            }
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                          <span className="ml-auto text-sm text-muted-foreground yb-money">
-                            {formatMoney(
-                              size.quantity * parseFloat(size.unitPrice || '0'),
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* Roster/Lineup Section */}
@@ -551,7 +411,7 @@ export function OrderForm() {
                         <ChevronRight className="size-4 text-muted-foreground" />
                       )}
                       <Users className="size-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Add lineup</span>
+                      <span className="text-sm font-medium">Roster</span>
                       {item.roster.length > 0 && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                           {item.roster.length} player{item.roster.length !== 1 ? 's' : ''}
@@ -562,64 +422,54 @@ export function OrderForm() {
 
                   {item.rosterExpanded && (
                     <div className="mt-3 space-y-2">
-                      {item.roster.map((entry, rosterIndex) => {
-                        // Get available sizes for this item (only sizes with quantity > 0)
-                        const availableSizes = item.sizes.filter((s) => s.quantity > 0);
-                        return (
-                          <div key={rosterIndex} className="flex items-center gap-2">
-                            <Input
-                              type="text"
-                              placeholder="Name"
-                              className="flex-1"
-                              value={entry.playerName}
-                              onChange={(e) =>
-                                updateRosterEntry(itemIndex, rosterIndex, 'playerName', e.target.value)
-                              }
-                            />
-                            <Input
-                              type="text"
-                              placeholder="#"
-                              className="w-16"
-                              value={entry.jerseyNumber}
-                              onChange={(e) =>
-                                updateRosterEntry(itemIndex, rosterIndex, 'jerseyNumber', e.target.value)
-                              }
-                            />
-                            <Select
-                              value={entry.size}
-                              onValueChange={(size) =>
-                                updateRosterEntry(itemIndex, rosterIndex, 'size', size)
-                              }
-                            >
-                              <SelectTrigger className="w-24">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableSizes.length > 0
-                                  ? availableSizes.map((s) => (
-                                      <SelectItem key={s.size} value={s.size}>
-                                        {SIZE_LABELS[s.size]}
-                                      </SelectItem>
-                                    ))
-                                  : GARMENT_SIZES.map((size) => (
-                                      <SelectItem key={size} value={size}>
-                                        {SIZE_LABELS[size]}
-                                      </SelectItem>
-                                    ))}
-                              </SelectContent>
-                            </Select>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() => removeRosterEntry(itemIndex, rosterIndex)}
-                            >
-                              <Trash2 className="size-3" />
-                            </Button>
-                          </div>
-                        );
-                      })}
+                      {item.roster.map((entry, rosterIndex) => (
+                        <div key={rosterIndex} className="flex items-center gap-2">
+                          <Input
+                            type="text"
+                            placeholder="Name"
+                            className="flex-1"
+                            value={entry.playerName}
+                            onChange={(e) =>
+                              updateRosterEntry(itemIndex, rosterIndex, 'playerName', e.target.value)
+                            }
+                          />
+                          <Input
+                            type="text"
+                            placeholder="#"
+                            className="w-16"
+                            value={entry.jerseyNumber}
+                            onChange={(e) =>
+                              updateRosterEntry(itemIndex, rosterIndex, 'jerseyNumber', e.target.value)
+                            }
+                          />
+                          <Select
+                            value={entry.size}
+                            onValueChange={(size) =>
+                              updateRosterEntry(itemIndex, rosterIndex, 'size', size)
+                            }
+                          >
+                            <SelectTrigger className="w-24">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {GARMENT_SIZES.map((size) => (
+                                <SelectItem key={size} value={size}>
+                                  {SIZE_LABELS[size]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => removeRosterEntry(itemIndex, rosterIndex)}
+                          >
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      ))}
                       <Button
                         type="button"
                         variant="outline"
