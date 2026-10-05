@@ -26,12 +26,9 @@ import { Surface } from '@/components/ui/surface';
 import { Textarea } from '@/components/ui/textarea';
 
 interface OrderItemSize {
-  id: string;
-  orderItemId: string;
   size: GarmentSize;
   quantity: number;
   unitPrice: string;
-  subtotal: string;
 }
 
 interface RosterEntry {
@@ -68,7 +65,8 @@ interface EditableOrderItem {
   productId: string;
   productName: string;
   description: string;
-  sizes: { size: GarmentSize; quantity: number; unitPrice: string }[];
+  quantity: number;
+  unitPrice: string;
   roster: { playerName: string; jerseyNumber: string; size: GarmentSize }[];
   rosterExpanded: boolean;
 }
@@ -97,71 +95,30 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
   const [discount, setDiscount] = useState(order.discount);
   const [notes, setNotes] = useState(order.notes ?? '');
   const [items, setItems] = useState<EditableOrderItem[]>(
-    order.items.map((item) => ({
-      id: item.id,
-      productId: item.productId,
-      productName: item.productName,
-      description: item.description ?? '',
-      sizes: item.sizes.map((s) => ({
-        size: s.size,
-        quantity: s.quantity,
-        unitPrice: s.unitPrice,
-      })),
-      roster: item.roster.map((r) => ({
-        playerName: r.playerName,
-        jerseyNumber: r.jerseyNumber ?? '',
-        size: r.size,
-      })),
-      rosterExpanded: false,
-    })),
+    order.items.map((item) => {
+      // Calculate total quantity and get unit price from sizes
+      const totalQuantity = item.sizes.reduce((sum, s) => sum + s.quantity, 0);
+      const unitPrice = item.sizes[0]?.unitPrice || '0';
+      return {
+        id: item.id,
+        productId: item.productId,
+        productName: item.productName,
+        description: item.description ?? '',
+        quantity: totalQuantity,
+        unitPrice,
+        roster: item.roster.map((r) => ({
+          playerName: r.playerName,
+          jerseyNumber: r.jerseyNumber ?? '',
+          size: r.size,
+        })),
+        rosterExpanded: false,
+      };
+    }),
   );
 
-  function updateItemDescription(index: number, description: string) {
+  function updateItem(index: number, field: keyof EditableOrderItem, value: string | number) {
     setItems(
-      items.map((item, i) => (i === index ? { ...item, description } : item)),
-    );
-  }
-
-  function updateItemSize(
-    itemIndex: number,
-    sizeIndex: number,
-    field: 'quantity' | 'unitPrice',
-    value: string,
-  ) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        const newSizes = item.sizes.map((s, si) => {
-          if (si !== sizeIndex) return s;
-          if (field === 'quantity') {
-            return { ...s, quantity: parseInt(value) || 0 };
-          }
-          return { ...s, unitPrice: value };
-        });
-        return { ...item, sizes: newSizes };
-      }),
-    );
-  }
-
-  function addSizeToItem(itemIndex: number, size: GarmentSize) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        if (item.sizes.some((s) => s.size === size)) return item;
-        return {
-          ...item,
-          sizes: [...item.sizes, { size, quantity: 1, unitPrice: '0' }],
-        };
-      }),
-    );
-  }
-
-  function removeSizeFromItem(itemIndex: number, sizeIndex: number) {
-    setItems(
-      items.map((item, i) => {
-        if (i !== itemIndex) return item;
-        return { ...item, sizes: item.sizes.filter((_, si) => si !== sizeIndex) };
-      }),
+      items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     );
   }
 
@@ -177,10 +134,9 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
     setItems(
       items.map((item, i) => {
         if (i !== itemIndex) return item;
-        const defaultSize = item.sizes[0]?.size ?? 'M';
         return {
           ...item,
-          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: defaultSize }],
+          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize }],
           rosterExpanded: true,
         };
       }),
@@ -216,12 +172,7 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => {
-    return (
-      sum +
-      item.sizes.reduce((sizeSum, s) => {
-        return sizeSum + s.quantity * parseFloat(s.unitPrice || '0');
-      }, 0)
-    );
+    return sum + item.quantity * parseFloat(item.unitPrice || '0');
   }, 0);
   const discountNum = parseFloat(discount) || 0;
   const total = Math.max(0, subtotal - discountNum);
@@ -232,13 +183,27 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
 
     // Build items for submission
     const orderItems = items.map((item) => {
-      const filteredSizes = item.sizes
-        .filter((s) => s.quantity > 0)
-        .map((s) => ({
-          size: s.size,
-          quantity: s.quantity,
-          unitPrice: s.unitPrice,
+      // Count sizes from roster entries
+      const sizeCounts = new Map<GarmentSize, number>();
+      for (const r of item.roster) {
+        if (r.playerName.trim()) {
+          sizeCounts.set(r.size, (sizeCounts.get(r.size) || 0) + 1);
+        }
+      }
+
+      // If roster has entries, use roster counts for sizes
+      // Otherwise, create a single "ONE_SIZE" entry with full quantity
+      let sizes: { size: GarmentSize; quantity: number; unitPrice: string }[];
+      if (sizeCounts.size > 0) {
+        sizes = Array.from(sizeCounts.entries()).map(([size, qty]) => ({
+          size,
+          quantity: qty,
+          unitPrice: item.unitPrice,
         }));
+      } else {
+        sizes = [{ size: 'ONE_SIZE' as GarmentSize, quantity: item.quantity, unitPrice: item.unitPrice }];
+      }
+
       const filteredRoster = item.roster
         .filter((r) => r.playerName.trim())
         .map((r) => ({
@@ -246,11 +211,12 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
           jerseyNumber: r.jerseyNumber.trim() || undefined,
           size: r.size,
         }));
+
       return {
         id: item.id,
         productId: item.productId,
         description: item.description || undefined,
-        sizes: filteredSizes,
+        sizes,
         roster: filteredRoster,
       };
     });
@@ -264,17 +230,9 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
 
     const result = editOrderSchema.safeParse(data);
     if (!result.success) {
-      const fieldErrors: Record<string, string> = {};
-      for (const issue of result.error.issues) {
-        const path = issue.path.join('.');
-        if (!fieldErrors[path]) {
-          fieldErrors[path] = issue.message;
-        }
-      }
-      setErrors(fieldErrors);
       const firstError = result.error.issues[0];
       if (firstError) {
-        setErrors((prev) => ({ ...prev, form: firstError.message }));
+        setErrors({ form: firstError.message });
       }
       return;
     }
@@ -384,78 +342,37 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
                 <Input
                   placeholder="Optional description..."
                   value={item.description}
-                  onChange={(e) => updateItemDescription(itemIndex, e.target.value)}
+                  onChange={(e) => updateItem(itemIndex, 'description', e.target.value)}
                 />
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Sizes</Label>
-                  <Select
-                    onValueChange={(size) => addSizeToItem(itemIndex, size as GarmentSize)}
-                  >
-                    <SelectTrigger className="h-8 w-[120px]">
-                      <Plus className="mr-1 size-3" />
-                      <SelectValue placeholder="Add size" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GARMENT_SIZES.filter(
-                        (s) => !item.sizes.some((is) => is.size === s),
-                      ).map((size) => (
-                        <SelectItem key={size} value={size}>
-                          {SIZE_LABELS[size]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <div className="flex items-center gap-4">
+                <div className="space-y-2">
+                  <Label>Quantity</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    className="w-24"
+                    value={item.quantity || ''}
+                    onChange={(e) => updateItem(itemIndex, 'quantity', parseInt(e.target.value) || 0)}
+                  />
                 </div>
-
-                {item.sizes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Add at least one size.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {item.sizes.map((size, sizeIndex) => (
-                      <div key={size.size} className="flex items-center gap-3">
-                        <span className="w-16 text-sm font-medium">
-                          {SIZE_LABELS[size.size]}
-                        </span>
-                        <Input
-                          type="number"
-                          min="0"
-                          placeholder="Qty"
-                          className="w-20"
-                          value={size.quantity || ''}
-                          onChange={(e) =>
-                            updateItemSize(itemIndex, sizeIndex, 'quantity', e.target.value)
-                          }
-                        />
-                        <span className="text-sm text-muted-foreground">@</span>
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="Price"
-                          className="w-24"
-                          value={size.unitPrice}
-                          onChange={(e) =>
-                            updateItemSize(itemIndex, sizeIndex, 'unitPrice', e.target.value)
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          onClick={() => removeSizeFromItem(itemIndex, sizeIndex)}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                        <span className="ml-auto text-sm text-muted-foreground yb-money">
-                          {formatMoney(size.quantity * parseFloat(size.unitPrice || '0'))}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <Label>Unit price</Label>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    className="w-32"
+                    value={item.unitPrice}
+                    onChange={(e) => updateItem(itemIndex, 'unitPrice', e.target.value)}
+                  />
+                </div>
+                <div className="ml-auto space-y-2">
+                  <Label className="text-muted-foreground">Subtotal</Label>
+                  <p className="py-2 text-sm font-medium yb-money">
+                    {formatMoney(item.quantity * parseFloat(item.unitPrice || '0'))}
+                  </p>
+                </div>
               </div>
 
               {/* Roster/Lineup Section */}
@@ -472,7 +389,7 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
                       <ChevronRight className="size-4 text-muted-foreground" />
                     )}
                     <Users className="size-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Lineup</span>
+                    <span className="text-sm font-medium">Roster</span>
                     {item.roster.length > 0 && (
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                         {item.roster.length} player{item.roster.length !== 1 ? 's' : ''}
@@ -483,63 +400,54 @@ export function EditOrderForm({ order }: EditOrderFormProps) {
 
                 {item.rosterExpanded && (
                   <div className="mt-3 space-y-2">
-                    {item.roster.map((entry, rosterIndex) => {
-                      const availableSizes = item.sizes.filter((s) => s.quantity > 0);
-                      return (
-                        <div key={rosterIndex} className="flex items-center gap-2">
-                          <Input
-                            type="text"
-                            placeholder="Name"
-                            className="flex-1"
-                            value={entry.playerName}
-                            onChange={(e) =>
-                              updateRosterEntry(itemIndex, rosterIndex, 'playerName', e.target.value)
-                            }
-                          />
-                          <Input
-                            type="text"
-                            placeholder="#"
-                            className="w-16"
-                            value={entry.jerseyNumber}
-                            onChange={(e) =>
-                              updateRosterEntry(itemIndex, rosterIndex, 'jerseyNumber', e.target.value)
-                            }
-                          />
-                          <Select
-                            value={entry.size}
-                            onValueChange={(size) =>
-                              updateRosterEntry(itemIndex, rosterIndex, 'size', size)
-                            }
-                          >
-                            <SelectTrigger className="w-24">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableSizes.length > 0
-                                ? availableSizes.map((s) => (
-                                    <SelectItem key={s.size} value={s.size}>
-                                      {SIZE_LABELS[s.size]}
-                                    </SelectItem>
-                                  ))
-                                : GARMENT_SIZES.map((size) => (
-                                    <SelectItem key={size} value={size}>
-                                      {SIZE_LABELS[size]}
-                                    </SelectItem>
-                                  ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() => removeRosterEntry(itemIndex, rosterIndex)}
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        </div>
-                      );
-                    })}
+                    {item.roster.map((entry, rosterIndex) => (
+                      <div key={rosterIndex} className="flex items-center gap-2">
+                        <Input
+                          type="text"
+                          placeholder="Name"
+                          className="flex-1"
+                          value={entry.playerName}
+                          onChange={(e) =>
+                            updateRosterEntry(itemIndex, rosterIndex, 'playerName', e.target.value)
+                          }
+                        />
+                        <Input
+                          type="text"
+                          placeholder="#"
+                          className="w-16"
+                          value={entry.jerseyNumber}
+                          onChange={(e) =>
+                            updateRosterEntry(itemIndex, rosterIndex, 'jerseyNumber', e.target.value)
+                          }
+                        />
+                        <Select
+                          value={entry.size}
+                          onValueChange={(size) =>
+                            updateRosterEntry(itemIndex, rosterIndex, 'size', size)
+                          }
+                        >
+                          <SelectTrigger className="w-24">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GARMENT_SIZES.map((size) => (
+                              <SelectItem key={size} value={size}>
+                                {SIZE_LABELS[size]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => removeRosterEntry(itemIndex, rosterIndex)}
+                        >
+                          <Trash2 className="size-3" />
+                        </Button>
+                      </div>
+                    ))}
                     <Button
                       type="button"
                       variant="outline"
