@@ -1,12 +1,11 @@
 import {
-  formatMeasure,
   formatMoney,
+  type Paginated,
   PURCHASE_REQUEST_STATUS_LABELS,
   type PurchaseRequestStatus,
   type StockUnit,
-  UNIT_SUFFIX,
 } from '@yamban/shared';
-import { ArrowLeft, Printer, Truck } from 'lucide-react';
+import { ArrowLeft, Truck } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -14,9 +13,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
+import { AddLineForm } from './add-line-form';
 import { CancelButton } from './cancel-button';
+import { EditableLine } from './editable-line';
+import { EditDetailsForm } from './edit-details-form';
+import { OrderedButton } from './ordered-button';
 import { PrintButton } from './print-button';
 
 export const metadata: Metadata = { title: 'Purchase request' };
@@ -53,6 +56,16 @@ interface PurchaseRequestDetail {
   lines: PurchaseRequestLineRow[];
 }
 
+interface MaterialOption {
+  id: string;
+  name: string;
+  color: string | null;
+  unit: StockUnit;
+  purchaseUnit: string;
+  purchaseQuantity: string;
+  averageUnitCost: string;
+}
+
 export default async function PurchaseRequestDetailPage({
   params,
 }: {
@@ -61,8 +74,14 @@ export default async function PurchaseRequestDetailPage({
   const { id } = await params;
 
   let pr: PurchaseRequestDetail;
+  let materials: MaterialOption[] = [];
   try {
     pr = await apiFetch<PurchaseRequestDetail>(`/purchase-requests/${id}`);
+    // Only fetch materials if PR can be edited
+    if (pr.status === 'DRAFT' || pr.status === 'PRINTED') {
+      const materialsData = await apiFetch<Paginated<MaterialOption>>('/materials?limit=500');
+      materials = materialsData.items;
+    }
   } catch {
     notFound();
   }
@@ -87,6 +106,7 @@ export default async function PurchaseRequestDetailPage({
   const estimatedTotal = pr.lines.reduce((sum, line) => sum + parseFloat(line.estimatedTotal), 0);
   const canEdit = pr.status === 'DRAFT' || pr.status === 'PRINTED';
   const canPrint = pr.status === 'DRAFT';
+  const canOrder = pr.status === 'PRINTED';
   const canReceive = pr.status === 'PRINTED' || pr.status === 'ORDERED';
   const canCancel = pr.status === 'DRAFT' || pr.status === 'PRINTED';
 
@@ -126,7 +146,16 @@ export default async function PurchaseRequestDetailPage({
         </Surface>
 
         <Surface className="p-4">
-          <h3 className="font-medium">Details</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">Details</h3>
+            {canEdit && (
+              <EditDetailsForm
+                prId={pr.id}
+                currentNeededBy={pr.neededBy}
+                currentNotes={pr.notes}
+              />
+            )}
+          </div>
           <div className="mt-2 space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Created</span>
@@ -147,19 +176,19 @@ export default async function PurchaseRequestDetailPage({
               <span className="font-medium">{formatMoney(estimatedTotal.toFixed(2))}</span>
             </div>
           </div>
+          {pr.notes && (
+            <div className="mt-3 border-t pt-3">
+              <p className="text-xs font-medium text-muted-foreground">Notes</p>
+              <p className="mt-1 text-sm whitespace-pre-wrap">{pr.notes}</p>
+            </div>
+          )}
         </Surface>
       </div>
 
-      {pr.notes && (
-        <Surface className="mt-4 p-4">
-          <h3 className="font-medium">Notes</h3>
-          <p className="mt-2 text-sm text-muted-foreground whitespace-pre-wrap">{pr.notes}</p>
-        </Surface>
-      )}
-
       <Surface className="mt-6 overflow-hidden">
-        <div className="border-b bg-muted/50 px-4 py-3">
+        <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-3">
           <h2 className="font-medium">Materials ({pr.lines.length})</h2>
+          {canEdit && <AddLineForm prId={pr.id} materials={materials} />}
         </div>
         <Table>
           <TableHeader>
@@ -169,56 +198,13 @@ export default async function PurchaseRequestDetailPage({
               <TableHead className="text-right">Purchase qty</TableHead>
               <TableHead className="text-right">Unit cost</TableHead>
               <TableHead className="text-right">Total</TableHead>
+              {canEdit && <TableHead className="w-20"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pr.lines.map((line) => {
-              const unitSuffix = UNIT_SUFFIX[line.materialUnit];
-              return (
-                <TableRow key={line.id}>
-                  <TableCell>
-                    <div>
-                      <span className="font-medium">
-                        {line.materialName}
-                        {line.materialColor && (
-                          <span className="ml-1 text-muted-foreground">({line.materialColor})</span>
-                        )}
-                      </span>
-                      {line.linkedOrders.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {line.linkedOrders.map((order) => (
-                            <Link
-                              key={order.orderId}
-                              href={`/orders/${order.orderId}`}
-                              className="text-xs text-muted-foreground hover:text-primary hover:underline"
-                            >
-                              {order.orderNumber}
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {formatMeasure(line.shortageQuantity, unitSuffix)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatMeasure(line.purchaseQty, unitSuffix)}
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      ({Math.ceil(parseFloat(line.purchaseQty) / parseFloat(line.purchaseQuantity))} {line.purchaseUnit})
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {parseFloat(line.estimatedUnitCost).toLocaleString('en-PH', {
-                      style: 'currency',
-                      currency: 'PHP',
-                      minimumFractionDigits: 4,
-                    })}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{formatMoney(line.estimatedTotal)}</TableCell>
-                </TableRow>
-              );
-            })}
+            {pr.lines.map((line) => (
+              <EditableLine key={line.id} prId={pr.id} line={line} canEdit={canEdit} />
+            ))}
           </TableBody>
         </Table>
       </Surface>
@@ -229,6 +215,7 @@ export default async function PurchaseRequestDetailPage({
         </div>
         <div className="flex gap-2">
           {canPrint && <PrintButton id={pr.id} />}
+          {canOrder && <OrderedButton id={pr.id} />}
           {canReceive && (
             <Button asChild>
               <Link href={`/purchase-requests/${pr.id}/receive`}>

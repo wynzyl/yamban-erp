@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
+  AddPurchaseRequestLineData,
+  CreatePurchaseRequestData,
   ListPurchaseRequestsQuery,
   PurchaseRequestStatus,
   ReceivePurchaseRequestData,
@@ -487,6 +489,62 @@ export class PurchaseRequestsService {
     });
   }
 
+  /** Create a manual purchase request */
+  async create(data: CreatePurchaseRequestData): Promise<PurchaseRequestDetail> {
+    return await this.db.transaction(async (tx) => {
+      // Generate PR number
+      const today = new Date();
+      const year = today.getFullYear();
+      const prefix = `PR-${year}-`;
+
+      const [lastPr] = await tx
+        .select({ prNumber: purchaseRequests.prNumber })
+        .from(purchaseRequests)
+        .where(ilike(purchaseRequests.prNumber, `${prefix}%`))
+        .orderBy(desc(purchaseRequests.prNumber))
+        .limit(1);
+
+      let seq = 1;
+      if (lastPr) {
+        const lastSeq = parseInt(lastPr.prNumber.slice(-4), 10);
+        if (!isNaN(lastSeq)) seq = lastSeq + 1;
+      }
+      const prNumber = `${prefix}${seq.toString().padStart(4, '0')}`;
+
+      // Create the PR
+      const [newPr] = await tx
+        .insert(purchaseRequests)
+        .values({
+          prNumber,
+          supplierId: data.supplierId ?? null,
+          status: 'DRAFT',
+          neededBy: data.neededBy,
+          notes: data.notes,
+        })
+        .returning();
+
+      const prId = newPr!.id;
+
+      // Insert lines
+      for (const lineData of data.lines) {
+        const qty = parseFloat(lineData.purchaseQuantity);
+        const cost = parseFloat(lineData.estimatedUnitCost);
+        const total = qty * cost;
+
+        await tx.insert(purchaseRequestLines).values({
+          purchaseRequestId: prId,
+          materialId: lineData.materialId,
+          shortageQuantity: '0', // Manual PR, no shortage
+          purchaseQuantity: lineData.purchaseQuantity,
+          estimatedUnitCost: lineData.estimatedUnitCost,
+          estimatedTotal: total.toFixed(2),
+        });
+      }
+
+      return await this.get(prId);
+    });
+  }
+
   /** Update a DRAFT/PRINTED purchase request */
   async update(id: string, data: UpdatePurchaseRequestData) {
     const [pr] = await this.db
@@ -532,6 +590,88 @@ export class PurchaseRequestsService {
     });
   }
 
+  /** Add a line to a DRAFT/PRINTED PR */
+  async addLine(id: string, data: AddPurchaseRequestLineData): Promise<PurchaseRequestDetail> {
+    const [pr] = await this.db
+      .select({ status: purchaseRequests.status })
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, id))
+      .limit(1);
+
+    if (!pr) throw new NotFoundException('Purchase request not found.');
+    if (pr.status !== 'DRAFT' && pr.status !== 'PRINTED') {
+      throw new BadRequestException('Lines can only be added to DRAFT or PRINTED purchase requests.');
+    }
+
+    const qty = parseFloat(data.purchaseQuantity);
+    const cost = parseFloat(data.estimatedUnitCost);
+    const total = qty * cost;
+
+    await this.db.insert(purchaseRequestLines).values({
+      purchaseRequestId: id,
+      materialId: data.materialId,
+      shortageQuantity: '0', // Manually added, no shortage
+      purchaseQuantity: data.purchaseQuantity,
+      estimatedUnitCost: data.estimatedUnitCost,
+      estimatedTotal: total.toFixed(2),
+    });
+
+    return await this.get(id);
+  }
+
+  /** Remove a line from a DRAFT/PRINTED PR */
+  async removeLine(id: string, lineId: string): Promise<PurchaseRequestDetail> {
+    const [pr] = await this.db
+      .select({ status: purchaseRequests.status })
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, id))
+      .limit(1);
+
+    if (!pr) throw new NotFoundException('Purchase request not found.');
+    if (pr.status !== 'DRAFT' && pr.status !== 'PRINTED') {
+      throw new BadRequestException('Lines can only be removed from DRAFT or PRINTED purchase requests.');
+    }
+
+    // Verify the line belongs to this PR
+    const [line] = await this.db
+      .select({ id: purchaseRequestLines.id })
+      .from(purchaseRequestLines)
+      .where(
+        and(
+          eq(purchaseRequestLines.id, lineId),
+          eq(purchaseRequestLines.purchaseRequestId, id),
+        ),
+      )
+      .limit(1);
+
+    if (!line) throw new NotFoundException('Line not found.');
+
+    // Check if this is the last line
+    const lineCount = await this.db.$count(
+      this.db
+        .select({ id: purchaseRequestLines.id })
+        .from(purchaseRequestLines)
+        .where(eq(purchaseRequestLines.purchaseRequestId, id))
+        .as('lines'),
+    );
+
+    if (lineCount <= 1) {
+      throw new BadRequestException('Cannot remove the last line. Cancel the purchase request instead.');
+    }
+
+    // Delete linked orders first
+    await this.db
+      .delete(purchaseRequestLineOrders)
+      .where(eq(purchaseRequestLineOrders.purchaseRequestLineId, lineId));
+
+    // Delete the line
+    await this.db
+      .delete(purchaseRequestLines)
+      .where(eq(purchaseRequestLines.id, lineId));
+
+    return await this.get(id);
+  }
+
   /** Mark a DRAFT PR as PRINTED */
   async markPrinted(id: string) {
     const [pr] = await this.db
@@ -548,6 +688,27 @@ export class PurchaseRequestsService {
     await this.db
       .update(purchaseRequests)
       .set({ status: 'PRINTED' })
+      .where(eq(purchaseRequests.id, id));
+
+    return await this.get(id);
+  }
+
+  /** Mark a PRINTED PR as ORDERED (sent to supplier) */
+  async markOrdered(id: string) {
+    const [pr] = await this.db
+      .select({ status: purchaseRequests.status })
+      .from(purchaseRequests)
+      .where(eq(purchaseRequests.id, id))
+      .limit(1);
+
+    if (!pr) throw new NotFoundException('Purchase request not found.');
+    if (pr.status !== 'PRINTED') {
+      throw new BadRequestException('Only PRINTED purchase requests can be marked as ordered.');
+    }
+
+    await this.db
+      .update(purchaseRequests)
+      .set({ status: 'ORDERED' })
       .where(eq(purchaseRequests.id, id));
 
     return await this.get(id);

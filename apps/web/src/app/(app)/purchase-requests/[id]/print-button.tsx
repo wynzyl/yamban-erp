@@ -16,13 +16,13 @@ export function PrintButton({ id }: PrintButtonProps) {
   async function handlePrint() {
     startTransition(async () => {
       try {
+        // Mark as printed first
         const res = await fetch(`/api/purchase-requests/${id}/print`, {
           method: 'PATCH',
         });
         if (res.ok) {
-          router.refresh();
-          // Trigger print dialog
-          window.print();
+          // Navigate to print page
+          router.push(`/purchase-requests/${id}/print`);
         }
       } catch {
         // Handle error

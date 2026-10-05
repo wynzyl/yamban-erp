@@ -12,6 +12,10 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  type AddPurchaseRequestLineData,
+  addPurchaseRequestLineSchema,
+  type CreatePurchaseRequestData,
+  createPurchaseRequestSchema,
   type ListPurchaseRequestsQuery,
   listPurchaseRequestsQuerySchema,
   type ReceivePurchaseRequestData,
@@ -42,6 +46,11 @@ export class PurchaseRequestsController {
     return this.purchaseRequests.get(id);
   }
 
+  @Post()
+  create(@Body(new ZodValidationPipe(createPurchaseRequestSchema)) body: CreatePurchaseRequestData) {
+    return this.purchaseRequests.create(body);
+  }
+
   @Post('build-from-shortages')
   buildFromShortages() {
     return this.purchaseRequests.buildFromShortages();
@@ -55,9 +64,30 @@ export class PurchaseRequestsController {
     return this.purchaseRequests.update(id, body);
   }
 
+  @Post(':id/lines')
+  addLine(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(addPurchaseRequestLineSchema)) body: AddPurchaseRequestLineData,
+  ) {
+    return this.purchaseRequests.addLine(id, body);
+  }
+
+  @Delete(':id/lines/:lineId')
+  removeLine(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('lineId', ParseUUIDPipe) lineId: string,
+  ) {
+    return this.purchaseRequests.removeLine(id, lineId);
+  }
+
   @Patch(':id/print')
   markPrinted(@Param('id', ParseUUIDPipe) id: string) {
     return this.purchaseRequests.markPrinted(id);
+  }
+
+  @Patch(':id/order')
+  markOrdered(@Param('id', ParseUUIDPipe) id: string) {
+    return this.purchaseRequests.markOrdered(id);
   }
 
   @Patch(':id/receive')

@@ -1,18 +1,23 @@
 'use client';
 
+import { PURCHASE_REQUEST_STATUS_LABELS, type PurchaseRequestStatus } from '@yamban/shared';
 import { Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 
+const STATUSES: PurchaseRequestStatus[] = ['DRAFT', 'PRINTED', 'ORDERED', 'RECEIVED', 'CANCELLED'];
+
 interface PurchaseRequestSearchProps {
   defaultValue?: string;
+  defaultStatus?: string;
 }
 
-export function PurchaseRequestSearch({ defaultValue = '' }: PurchaseRequestSearchProps) {
+export function PurchaseRequestSearch({ defaultValue = '', defaultStatus = '' }: PurchaseRequestSearchProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [value, setValue] = useState(defaultValue);
+  const [status, setStatus] = useState(defaultStatus);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -24,6 +29,30 @@ export function PurchaseRequestSearch({ defaultValue = '' }: PurchaseRequestSear
         params.set('search', value.trim());
       } else {
         params.delete('search');
+      }
+      if (status) {
+        params.set('status', status);
+      } else {
+        params.delete('status');
+      }
+      params.delete('page');
+      router.push(`?${params}`);
+    });
+  }
+
+  function handleStatusChange(newStatus: string) {
+    setStatus(newStatus);
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams);
+      if (value.trim()) {
+        params.set('search', value.trim());
+      } else {
+        params.delete('search');
+      }
+      if (newStatus) {
+        params.set('status', newStatus);
+      } else {
+        params.delete('status');
       }
       params.delete('page');
       router.push(`?${params}`);
@@ -37,13 +66,14 @@ export function PurchaseRequestSearch({ defaultValue = '' }: PurchaseRequestSear
       const params = new URLSearchParams(searchParams);
       params.delete('search');
       params.delete('page');
+      if (status) params.set('status', status);
       router.push(`?${params}`);
     });
   }
 
   return (
-    <form onSubmit={handleSubmit} role="search" className="flex max-w-md gap-2">
-      <div className="relative flex-1">
+    <form onSubmit={handleSubmit} role="search" className="flex flex-wrap gap-2">
+      <div className="relative flex-1 min-w-[200px]">
         <Search
           aria-hidden
           className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -72,6 +102,22 @@ export function PurchaseRequestSearch({ defaultValue = '' }: PurchaseRequestSear
           </button>
         )}
       </div>
+      <select
+        value={status}
+        onChange={(e) => handleStatusChange(e.target.value)}
+        className={cn(
+          'h-10 rounded-control border border-input bg-card px-3 text-sm text-foreground',
+          isPending && 'opacity-70',
+        )}
+        aria-label="Filter by status"
+      >
+        <option value="">All statuses</option>
+        {STATUSES.map((s) => (
+          <option key={s} value={s}>
+            {PURCHASE_REQUEST_STATUS_LABELS[s]}
+          </option>
+        ))}
+      </select>
       <button
         type="submit"
         disabled={isPending}

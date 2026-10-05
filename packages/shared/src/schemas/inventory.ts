@@ -111,6 +111,29 @@ export const listPurchaseRequestsQuerySchema = z.object({
 export type ListPurchaseRequestsQuery = z.output<typeof listPurchaseRequestsQuerySchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Create Purchase Request (manual)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const createPurchaseRequestLineSchema = z.object({
+  materialId: z.uuid('Select a material.'),
+  purchaseQuantity: qty.refine((v) => parseFloat(v) > 0, 'Quantity must be greater than zero.'),
+  estimatedUnitCost: unitCost,
+});
+export type CreatePurchaseRequestLineInput = z.input<typeof createPurchaseRequestLineSchema>;
+
+export const createPurchaseRequestSchema = z.object({
+  supplierId: z.uuid().optional().nullable(),
+  neededBy: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v : null)),
+  notes: optionalText(2000),
+  lines: z.array(createPurchaseRequestLineSchema).min(1, 'Add at least one material.'),
+});
+export type CreatePurchaseRequestInput = z.input<typeof createPurchaseRequestSchema>;
+export type CreatePurchaseRequestData = z.output<typeof createPurchaseRequestSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Update Purchase Request (edit PR lines)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -131,6 +154,18 @@ export const updatePurchaseRequestSchema = z.object({
 });
 export type UpdatePurchaseRequestInput = z.input<typeof updatePurchaseRequestSchema>;
 export type UpdatePurchaseRequestData = z.output<typeof updatePurchaseRequestSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Line to Purchase Request
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const addPurchaseRequestLineSchema = z.object({
+  materialId: z.uuid('Select a material.'),
+  purchaseQuantity: qty.refine((v) => parseFloat(v) > 0, 'Quantity must be greater than zero.'),
+  estimatedUnitCost: unitCost,
+});
+export type AddPurchaseRequestLineInput = z.input<typeof addPurchaseRequestLineSchema>;
+export type AddPurchaseRequestLineData = z.output<typeof addPurchaseRequestLineSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Receive Purchase Request (receive delivery)

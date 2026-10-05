@@ -74,11 +74,17 @@ export default async function PurchaseRequestsPage({
             <Link href="/purchase-requests/shortages">View shortages</Link>
           </Button>
           <BuildFromShortagesButton />
+          <Button asChild>
+            <Link href="/purchase-requests/new">
+              <Plus className="size-4" />
+              New
+            </Link>
+          </Button>
         </div>
       </PageHeader>
 
       <div className="mt-6">
-        <PurchaseRequestSearch defaultValue={search} />
+        <PurchaseRequestSearch defaultValue={search} defaultStatus={status ?? ''} />
       </div>
 
       <Surface className="mt-4 overflow-hidden">
