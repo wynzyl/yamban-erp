@@ -491,7 +491,7 @@ export class PurchaseRequestsService {
 
   /** Create a manual purchase request */
   async create(data: CreatePurchaseRequestData): Promise<PurchaseRequestDetail> {
-    return await this.db.transaction(async (tx) => {
+    const prId = await this.db.transaction(async (tx) => {
       // Generate PR number
       const today = new Date();
       const year = today.getFullYear();
@@ -523,7 +523,7 @@ export class PurchaseRequestsService {
         })
         .returning();
 
-      const prId = newPr!.id;
+      const id = newPr!.id;
 
       // Insert lines
       for (const lineData of data.lines) {
@@ -532,7 +532,7 @@ export class PurchaseRequestsService {
         const total = qty * cost;
 
         await tx.insert(purchaseRequestLines).values({
-          purchaseRequestId: prId,
+          purchaseRequestId: id,
           materialId: lineData.materialId,
           shortageQuantity: '0', // Manual PR, no shortage
           purchaseQuantity: lineData.purchaseQuantity,
@@ -541,8 +541,11 @@ export class PurchaseRequestsService {
         });
       }
 
-      return await this.get(prId);
+      return id;
     });
+
+    // Fetch the complete PR after transaction commits
+    return await this.get(prId);
   }
 
   /** Update a DRAFT/PRINTED purchase request */
