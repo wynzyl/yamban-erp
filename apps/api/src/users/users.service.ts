@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { hash } from '@node-rs/argon2';
-import type { CreateUserInput, SessionUser } from '@yamban/shared';
-import { asc, sql } from 'drizzle-orm';
+import type { CreateUserInput, SessionUser, UserRole } from '@yamban/shared';
+import { asc, eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { users } from '../db/schema/index.js';
@@ -19,8 +19,12 @@ const publicColumns = {
 export class UsersService {
   constructor(@InjectDb() private readonly db: Database) {}
 
-  list() {
-    return this.db.select(publicColumns).from(users).orderBy(asc(users.name));
+  list(role?: UserRole) {
+    const query = this.db.select(publicColumns).from(users);
+    if (role) {
+      return query.where(eq(users.role, role)).orderBy(asc(users.name));
+    }
+    return query.orderBy(asc(users.name));
   }
 
   async create(input: CreateUserInput): Promise<SessionUser> {

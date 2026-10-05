@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { CreatePaymentData, ListQuery, Paginated, UpdatePaymentData } from '@yamban/shared';
 import { and, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { customers, orders, payments } from '../db/schema/index.js';
+import { OrdersService } from '../orders/orders.service.js';
 
 export interface PaymentListRow {
   id: string;
@@ -35,7 +36,10 @@ export interface PaymentDetailRow {
 
 @Injectable()
 export class PaymentsService {
-  constructor(@InjectDb() private readonly db: Database) {}
+  constructor(
+    @InjectDb() private readonly db: Database,
+    @Inject(forwardRef(() => OrdersService)) private readonly ordersService: OrdersService,
+  ) {}
 
   async list(q: ListQuery): Promise<Paginated<PaymentListRow>> {
     const conditions: SQL[] = [];
@@ -116,8 +120,12 @@ export class PaymentsService {
   }
 
   async create(data: CreatePaymentData, userId: string) {
-    // Verify order exists
-    const [order] = await this.db.select({ id: orders.id }).from(orders).where(eq(orders.id, data.orderId)).limit(1);
+    // Verify order exists and get its status
+    const [order] = await this.db
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, data.orderId))
+      .limit(1);
     if (!order) throw new NotFoundException('Order not found.');
 
     const [row] = await this.db
@@ -132,6 +140,11 @@ export class PaymentsService {
         recordedById: userId,
       })
       .returning();
+
+    // Auto-confirm order if it's still a quotation
+    if (order.status === 'QUOTATION') {
+      await this.ordersService.confirmOrder(order.id);
+    }
 
     return row!;
   }

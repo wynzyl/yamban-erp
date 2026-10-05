@@ -1,7 +1,7 @@
 'use client';
 
 import { createOrderSchema, formatMoney, GARMENT_SIZES, SIZE_LABELS, type GarmentSize } from '@yamban/shared';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Plus, Trash2, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
@@ -41,11 +41,19 @@ interface OrderItemSize {
   unitPrice: string;
 }
 
+interface RosterEntry {
+  playerName: string;
+  jerseyNumber: string;
+  size: GarmentSize;
+}
+
 interface OrderItem {
   productId: string;
   productName: string;
   description: string;
   sizes: OrderItemSize[];
+  roster: RosterEntry[];
+  rosterExpanded: boolean;
 }
 
 export function OrderForm() {
@@ -125,6 +133,8 @@ export function OrderForm() {
         productName: product.name,
         description: '',
         sizes,
+        roster: [],
+        rosterExpanded: false,
       },
     ]);
   }
@@ -183,6 +193,56 @@ export function OrderForm() {
     );
   }
 
+  function toggleRosterExpanded(itemIndex: number) {
+    setItems(
+      items.map((item, i) =>
+        i === itemIndex ? { ...item, rosterExpanded: !item.rosterExpanded } : item,
+      ),
+    );
+  }
+
+  function addRosterEntry(itemIndex: number) {
+    setItems(
+      items.map((item, i) => {
+        if (i !== itemIndex) return item;
+        // Default to first available size
+        const defaultSize = item.sizes[0]?.size ?? 'M';
+        return {
+          ...item,
+          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: defaultSize }],
+          rosterExpanded: true,
+        };
+      }),
+    );
+  }
+
+  function removeRosterEntry(itemIndex: number, rosterIndex: number) {
+    setItems(
+      items.map((item, i) => {
+        if (i !== itemIndex) return item;
+        return { ...item, roster: item.roster.filter((_, ri) => ri !== rosterIndex) };
+      }),
+    );
+  }
+
+  function updateRosterEntry(
+    itemIndex: number,
+    rosterIndex: number,
+    field: keyof RosterEntry,
+    value: string,
+  ) {
+    setItems(
+      items.map((item, i) => {
+        if (i !== itemIndex) return item;
+        const newRoster = item.roster.map((r, ri) => {
+          if (ri !== rosterIndex) return r;
+          return { ...r, [field]: field === 'size' ? (value as GarmentSize) : value };
+        });
+        return { ...item, roster: newRoster };
+      }),
+    );
+  }
+
   // Calculate totals
   const subtotal = items.reduce((sum, item) => {
     return (
@@ -218,11 +278,19 @@ export function OrderForm() {
             quantity: s.quantity,
             unitPrice: s.unitPrice,
           }));
+        // Filter roster to only include entries with names
+        const filteredRoster = item.roster
+          .filter((r) => r.playerName.trim())
+          .map((r) => ({
+            playerName: r.playerName.trim(),
+            jerseyNumber: r.jerseyNumber.trim() || undefined,
+            size: r.size,
+          }));
         return {
           productId: item.productId,
           description: item.description || undefined,
           sizes: filteredSizes,
-          roster: [],
+          roster: filteredRoster,
         };
       })
       .filter((item) => item.sizes.length > 0);
@@ -474,6 +542,102 @@ export function OrderForm() {
                           </span>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Roster/Lineup Section */}
+                <div className="mt-4 border-t border-border pt-4">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between text-left"
+                    onClick={() => toggleRosterExpanded(itemIndex)}
+                  >
+                    <div className="flex items-center gap-2">
+                      {item.rosterExpanded ? (
+                        <ChevronDown className="size-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="size-4 text-muted-foreground" />
+                      )}
+                      <Users className="size-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Add lineup</span>
+                      {item.roster.length > 0 && (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          {item.roster.length} player{item.roster.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+
+                  {item.rosterExpanded && (
+                    <div className="mt-3 space-y-2">
+                      {item.roster.map((entry, rosterIndex) => {
+                        // Get available sizes for this item (only sizes with quantity > 0)
+                        const availableSizes = item.sizes.filter((s) => s.quantity > 0);
+                        return (
+                          <div key={rosterIndex} className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              placeholder="Name"
+                              className="flex-1"
+                              value={entry.playerName}
+                              onChange={(e) =>
+                                updateRosterEntry(itemIndex, rosterIndex, 'playerName', e.target.value)
+                              }
+                            />
+                            <Input
+                              type="text"
+                              placeholder="#"
+                              className="w-16"
+                              value={entry.jerseyNumber}
+                              onChange={(e) =>
+                                updateRosterEntry(itemIndex, rosterIndex, 'jerseyNumber', e.target.value)
+                              }
+                            />
+                            <Select
+                              value={entry.size}
+                              onValueChange={(size) =>
+                                updateRosterEntry(itemIndex, rosterIndex, 'size', size)
+                              }
+                            >
+                              <SelectTrigger className="w-24">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableSizes.length > 0
+                                  ? availableSizes.map((s) => (
+                                      <SelectItem key={s.size} value={s.size}>
+                                        {SIZE_LABELS[s.size]}
+                                      </SelectItem>
+                                    ))
+                                  : GARMENT_SIZES.map((size) => (
+                                      <SelectItem key={size} value={size}>
+                                        {SIZE_LABELS[size]}
+                                      </SelectItem>
+                                    ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() => removeRosterEntry(itemIndex, rosterIndex)}
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addRosterEntry(itemIndex)}
+                      >
+                        <Plus className="size-3" />
+                        Add player
+                      </Button>
                     </div>
                   )}
                 </div>

@@ -23,6 +23,7 @@ export const createSupplierSchema = z.object({
     .optional()
     .transform((v) => (v ? v.toLowerCase() : null)),
   address: optionalText(500),
+  bankDetails: optionalText(500),
   notes: optionalText(2000),
 });
 export type CreateSupplierInput = z.input<typeof createSupplierSchema>;

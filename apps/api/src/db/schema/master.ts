@@ -50,6 +50,7 @@ export const suppliers = pgTable('suppliers', {
   mobile: text(),
   email: text(),
   address: text(),
+  bankDetails: text(), // Bank name, account number, account name
   notes: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

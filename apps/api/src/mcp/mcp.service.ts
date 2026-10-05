@@ -10,7 +10,7 @@ export class McpService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Register tools dynamically
+    // Register utility tools dynamically (tools that don't need DI)
     this.mcp.registerTool({
       name: 'ping',
       description: 'Health check tool - returns pong',
@@ -32,26 +32,22 @@ export class McpService implements OnModuleInit {
               {
                 name: 'Yamban ERP',
                 version: '0.1.0',
-                description:
-                  'ERP system for sublimation and tailoring shop: orders, inventory, collections, and expenses',
-                modules: ['customers', 'users', 'auth'],
+                description: 'ERP system for sublimation and tailoring shop',
+                modules: [
+                  'orders',
+                  'customers',
+                  'products',
+                  'production',
+                  'payments',
+                  'materials',
+                  'design',
+                ],
               },
               null,
               2,
             ),
           },
         ],
-      }),
-    });
-
-    this.mcp.registerTool({
-      name: 'echo',
-      description: 'Echo back the provided message',
-      parameters: z.object({
-        message: z.string().describe('The message to echo back'),
-      }),
-      handler: async (args: Record<string, unknown>) => ({
-        content: [{ type: 'text' as const, text: args.message as string }],
       }),
     });
   }
