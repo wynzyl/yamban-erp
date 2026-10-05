@@ -11,3 +11,6 @@ export * from './schemas/payment.js';
 export * from './schemas/product.js';
 export * from './schemas/production.js';
 export * from './schemas/supplier.js';
+export * from './schemas/machine.js';
+export * from './schemas/settings.js';
+export * from './schemas/costing.js';
