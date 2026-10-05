@@ -1,11 +1,9 @@
 import {
   formatDate,
-  type GarmentSize,
   type ProductionStage,
   PRODUCTION_STAGE_LABELS,
-  SIZE_LABELS,
 } from '@yamban/shared';
-import { ArrowLeft, Edit, Package } from 'lucide-react';
+import { ArrowLeft, Edit } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -30,12 +28,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   }
 }
 
-interface ProductSize {
-  id: string;
-  size: GarmentSize;
-  defaultPrice: string;
-}
-
 interface ProductProcess {
   id: string;
   machineId: string;
@@ -56,10 +48,10 @@ interface ProductDetail {
   id: string;
   name: string;
   description: string | null;
+  defaultPrice: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;
-  sizes: ProductSize[];
   processes: ProductProcess[];
 }
 
@@ -105,88 +97,44 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </div>
       </PageHeader>
 
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
-        {/* Product Info */}
-        <Surface className="p-4">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Product details</h2>
-          <dl className="space-y-3 text-sm">
-            <div>
-              <dt className="text-muted-foreground">Name</dt>
-              <dd className="mt-1 font-medium">{product.name}</dd>
-            </div>
-            {product.description && (
-              <div>
-                <dt className="text-muted-foreground">Description</dt>
-                <dd className="mt-1">{product.description}</dd>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Status</dt>
-              <dd>
-                <span
-                  className={`inline-flex h-6 items-center rounded-control px-2 text-xs font-medium ${
-                    product.active
-                      ? 'bg-success/10 text-success'
-                      : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  {product.active ? 'Active' : 'Inactive'}
-                </span>
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">Created</dt>
-              <dd>{formatDate(product.createdAt)}</dd>
-            </div>
-          </dl>
-        </Surface>
-
-        {/* Quick Stats */}
-        <Surface className="p-4">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">Summary</h2>
-          <div className="flex items-center gap-4">
-            <div className="flex size-12 items-center justify-center rounded-lg bg-muted">
-              <Package className="size-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold">{product.sizes.length}</p>
-              <p className="text-sm text-muted-foreground">
-                {product.sizes.length === 1 ? 'size' : 'sizes'} configured
-              </p>
-            </div>
+      <Surface className="mt-6 p-4">
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">Product details</h2>
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-muted-foreground">Name</dt>
+            <dd className="mt-1 font-medium">{product.name}</dd>
           </div>
-        </Surface>
-      </div>
-
-      {/* Sizes & Pricing */}
-      <Surface className="mt-6 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="font-medium">Sizes & pricing</h2>
-        </div>
-        {product.sizes.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No sizes configured yet. Edit this product to add sizes.
+          {product.description && (
+            <div>
+              <dt className="text-muted-foreground">Description</dt>
+              <dd className="mt-1">{product.description}</dd>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Default price</dt>
+            <dd className="font-medium">
+              <Money value={product.defaultPrice} />
+            </dd>
           </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Size</TableHead>
-                <TableHead className="text-right">Default price</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {product.sizes.map((size) => (
-                <TableRow key={size.id}>
-                  <TableCell className="font-medium">{SIZE_LABELS[size.size]}</TableCell>
-                  <TableCell className="text-right">
-                    <Money value={size.defaultPrice} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Status</dt>
+            <dd>
+              <span
+                className={`inline-flex h-6 items-center rounded-control px-2 text-xs font-medium ${
+                  product.active
+                    ? 'bg-success/10 text-success'
+                    : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {product.active ? 'Active' : 'Inactive'}
+              </span>
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-muted-foreground">Created</dt>
+            <dd>{formatDate(product.createdAt)}</dd>
+          </div>
+        </dl>
       </Surface>
 
       {/* Machine Processes */}

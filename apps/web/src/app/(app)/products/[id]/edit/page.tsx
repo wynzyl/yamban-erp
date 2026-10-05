@@ -1,4 +1,3 @@
-import type { GarmentSize } from '@yamban/shared';
 import { ArrowLeft } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -13,7 +12,7 @@ interface ProductDetail {
   id: string;
   name: string;
   description: string | null;
-  sizes: { size: GarmentSize; defaultPrice: string }[];
+  defaultPrice: string;
 }
 
 export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {

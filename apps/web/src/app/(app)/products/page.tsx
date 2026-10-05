@@ -2,6 +2,7 @@ import type { Paginated } from '@yamban/shared';
 import { Package, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Money } from '@/components/domain/money';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
@@ -17,8 +18,8 @@ interface ProductRow {
   id: string;
   name: string;
   description: string | null;
+  defaultPrice: string;
   active: boolean;
-  sizeCount: number;
   createdAt: string;
 }
 
@@ -74,7 +75,7 @@ export default async function ProductsPage({
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead className="text-center">Sizes</TableHead>
+                <TableHead className="text-right">Price</TableHead>
                 <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -92,8 +93,8 @@ export default async function ProductsPage({
                   <TableCell className="text-muted-foreground">
                     {p.description ?? '—'}
                   </TableCell>
-                  <TableCell className="text-center tabular-nums">
-                    {p.sizeCount}
+                  <TableCell className="text-right">
+                    <Money value={p.defaultPrice} />
                   </TableCell>
                   <TableCell className="text-center">
                     <span

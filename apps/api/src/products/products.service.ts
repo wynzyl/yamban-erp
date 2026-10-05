@@ -2,31 +2,24 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   AddProductProcessData,
   CreateProductData,
-  GarmentSize,
   ListQuery,
   Paginated,
   ProductionStage,
   UpdateProductData,
   UpdateProductProcessData,
 } from '@yamban/shared';
-import { and, asc, eq, ilike, type SQL } from 'drizzle-orm';
+import { asc, eq, ilike, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
-import { machines, products, productSizes, productSizeProcesses } from '../db/schema/index.js';
+import { machines, products, productSizeProcesses } from '../db/schema/index.js';
 
 export interface ProductListRow {
   id: string;
   name: string;
   description: string | null;
-  active: boolean;
-  sizeCount: number;
-  createdAt: Date;
-}
-
-export interface ProductSizeRow {
-  id: string;
-  size: string;
   defaultPrice: string;
+  active: boolean;
+  createdAt: Date;
 }
 
 export interface ProductProcessRow {
@@ -42,10 +35,10 @@ export interface ProductDetailRow {
   id: string;
   name: string;
   description: string | null;
+  defaultPrice: string;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
-  sizes: ProductSizeRow[];
   processes: ProductProcessRow[];
 }
 
@@ -63,14 +56,14 @@ export class ProductsService {
       conditions.push(ilike(products.name, term));
     }
 
-    const where = conditions.length ? and(...conditions) : undefined;
+    const where = conditions.length ? (conditions.length === 1 ? conditions[0] : undefined) : undefined;
 
-    // Get products with size count
     const allProducts = await this.db
       .select({
         id: products.id,
         name: products.name,
         description: products.description,
+        defaultPrice: products.defaultPrice,
         active: products.active,
         createdAt: products.createdAt,
       })
@@ -78,27 +71,10 @@ export class ProductsService {
       .where(where)
       .orderBy(asc(products.name));
 
-    // Get size counts for all products
-    const sizeCounts = await this.db
-      .select({
-        productId: productSizes.productId,
-      })
-      .from(productSizes);
-
-    const sizeCountMap = new Map<string, number>();
-    for (const s of sizeCounts) {
-      sizeCountMap.set(s.productId, (sizeCountMap.get(s.productId) ?? 0) + 1);
-    }
-
     const total = allProducts.length;
     const paginatedProducts = allProducts.slice((page - 1) * pageSize, page * pageSize);
 
-    const items: ProductListRow[] = paginatedProducts.map((p) => ({
-      ...p,
-      sizeCount: sizeCountMap.get(p.id) ?? 0,
-    }));
-
-    return { items, page, pageSize, total };
+    return { items: paginatedProducts, page, pageSize, total };
   }
 
   async get(id: string): Promise<ProductDetailRow> {
@@ -107,6 +83,7 @@ export class ProductsService {
         id: products.id,
         name: products.name,
         description: products.description,
+        defaultPrice: products.defaultPrice,
         active: products.active,
         createdAt: products.createdAt,
         updatedAt: products.updatedAt,
@@ -116,16 +93,6 @@ export class ProductsService {
       .limit(1);
 
     if (!product) throw new NotFoundException('Product not found.');
-
-    const sizes = await this.db
-      .select({
-        id: productSizes.id,
-        size: productSizes.size,
-        defaultPrice: productSizes.defaultPrice,
-      })
-      .from(productSizes)
-      .where(eq(productSizes.productId, id))
-      .orderBy(asc(productSizes.size));
 
     const processes = await this.db
       .select({
@@ -141,66 +108,36 @@ export class ProductsService {
       .where(eq(productSizeProcesses.productId, id))
       .orderBy(asc(machines.stage));
 
-    return { ...product, sizes, processes };
+    return { ...product, processes };
   }
 
   async create(data: CreateProductData) {
-    return await this.db.transaction(async (tx) => {
-      const [product] = await tx
-        .insert(products)
-        .values({
-          name: data.name,
-          description: data.description,
-        })
-        .returning();
+    const [product] = await this.db
+      .insert(products)
+      .values({
+        name: data.name,
+        description: data.description,
+        defaultPrice: data.defaultPrice,
+      })
+      .returning();
 
-      if (data.sizes && data.sizes.length > 0) {
-        await tx.insert(productSizes).values(
-          data.sizes.map((s) => ({
-            productId: product!.id,
-            size: s.size,
-            defaultPrice: s.defaultPrice,
-          })),
-        );
-      }
-
-      return product!;
-    });
+    return product!;
   }
 
   async update(id: string, data: UpdateProductData) {
     const [existing] = await this.db.select({ id: products.id }).from(products).where(eq(products.id, id)).limit(1);
     if (!existing) throw new NotFoundException('Product not found.');
 
-    return await this.db.transaction(async (tx) => {
-      // Update product
-      const updates: Partial<typeof products.$inferInsert> = {};
-      if (data.name !== undefined) updates.name = data.name;
-      if (data.description !== undefined) updates.description = data.description;
+    const updates: Partial<typeof products.$inferInsert> = {};
+    if (data.name !== undefined) updates.name = data.name;
+    if (data.description !== undefined) updates.description = data.description;
+    if (data.defaultPrice !== undefined) updates.defaultPrice = data.defaultPrice;
 
-      if (Object.keys(updates).length > 0) {
-        await tx.update(products).set(updates).where(eq(products.id, id));
-      }
+    if (Object.keys(updates).length > 0) {
+      await this.db.update(products).set(updates).where(eq(products.id, id));
+    }
 
-      // Update sizes if provided
-      if (data.sizes !== undefined) {
-        // Delete existing sizes
-        await tx.delete(productSizes).where(eq(productSizes.productId, id));
-
-        // Insert new sizes
-        if (data.sizes.length > 0) {
-          await tx.insert(productSizes).values(
-            data.sizes.map((s) => ({
-              productId: id,
-              size: s.size,
-              defaultPrice: s.defaultPrice,
-            })),
-          );
-        }
-      }
-
-      return this.get(id);
-    });
+    return this.get(id);
   }
 
   async delete(id: string): Promise<void> {

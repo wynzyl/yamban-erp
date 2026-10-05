@@ -81,6 +81,7 @@ export const products = pgTable('products', {
   id: id(),
   name: text().notNull(),
   description: text(),
+  defaultPrice: money().notNull().default('0'),
   active: boolean().notNull().default(true),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

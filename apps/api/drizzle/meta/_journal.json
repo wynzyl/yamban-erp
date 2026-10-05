@@ -29,6 +29,13 @@
       "when": 1791186915530,
       "tag": "0003_remove-size-from-product-processes",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791187556284,
+      "tag": "0004_add-product-default-price",
+      "breakpoints": true
     }
   ]
 }
