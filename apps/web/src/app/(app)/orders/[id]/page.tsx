@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
+import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, SIZE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
 import { ArrowLeft, Calendar, Edit, Package, Palette, Plus, User, Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -279,12 +279,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                         Roster ({item.roster.length} player{item.roster.length !== 1 ? 's' : ''})
                       </summary>
                       <div className="mt-1 space-y-1">
-                        {item.sizes.map((s) => {
-                          const playersInSize = item.roster.filter((r) => r.size === s.size);
-                          if (playersInSize.length === 0) return null;
+                        {/* Group roster by unique sizes */}
+                        {Array.from(new Set(item.roster.map((r) => r.size))).map((size) => {
+                          const playersInSize = item.roster.filter((r) => r.size === size);
                           return (
-                            <div key={s.size} className="text-xs">
-                              <span className="font-medium text-muted-foreground">{s.size}:</span>
+                            <div key={size} className="text-xs">
+                              <span className="font-medium text-muted-foreground">{SIZE_LABELS[size as keyof typeof SIZE_LABELS] || size}:</span>
                               <span className="ml-1 text-foreground">
                                 {playersInSize.map((r, idx) => (
                                   <span key={r.id}>
