@@ -491,6 +491,26 @@ export class PurchaseRequestsService {
 
   /** Create a manual purchase request */
   async create(data: CreatePurchaseRequestData): Promise<PurchaseRequestDetail> {
+    // Check if there's already a DRAFT PR for this supplier
+    if (data.supplierId) {
+      const [existingDraft] = await this.db
+        .select({ id: purchaseRequests.id, prNumber: purchaseRequests.prNumber })
+        .from(purchaseRequests)
+        .where(
+          and(
+            eq(purchaseRequests.supplierId, data.supplierId),
+            eq(purchaseRequests.status, 'DRAFT'),
+          ),
+        )
+        .limit(1);
+
+      if (existingDraft) {
+        throw new BadRequestException(
+          `A draft PR already exists for this supplier (${existingDraft.prNumber}). Add materials to the existing draft or print it first.`,
+        );
+      }
+    }
+
     const prId = await this.db.transaction(async (tx) => {
       // Generate PR number
       const today = new Date();
