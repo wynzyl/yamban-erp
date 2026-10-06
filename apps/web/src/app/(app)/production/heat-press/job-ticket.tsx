@@ -53,21 +53,24 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
           {/* Roster by size */}
           {roster.length > 0 && (
             <div className="mb-2 border-t border-black pt-2">
-              {sizes.map((s) => {
-                const playersInSize = roster.filter((r) => r.size === s.size);
-                if (playersInSize.length === 0) return null;
-                return (
-                  <div key={s.size} className="mb-1">
-                    <div className="font-bold">{s.size}</div>
-                    {playersInSize.map((r, idx) => (
-                      <div key={idx} className="pl-2">
-                        {r.jerseyNumber && `#${r.jerseyNumber} `}
-                        {r.playerName}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
+              {(() => {
+                // Get unique sizes from roster entries (handles ONE_SIZE mismatch)
+                const rosterSizes = [...new Set(roster.map((r) => r.size))];
+                return rosterSizes.map((size) => {
+                  const playersInSize = roster.filter((r) => r.size === size);
+                  return (
+                    <div key={size} className="mb-1">
+                      <div className="font-bold">{size}</div>
+                      {playersInSize.map((r, idx) => (
+                        <div key={idx} className="pl-2">
+                          {r.jerseyNumber && `#${r.jerseyNumber} `}
+                          {r.playerName}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
 

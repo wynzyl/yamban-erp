@@ -104,23 +104,29 @@ export function JobCard({ job }: JobCardProps) {
                 Roster ({job.roster.length} players)
               </summary>
               <div className="mt-1 space-y-1">
-                {job.sizes.map((s) => {
-                  const playersInSize = job.roster.filter((r) => r.size === s.size);
-                  if (playersInSize.length === 0) return null;
-                  return (
-                    <div key={s.size} className="text-xs">
-                      <div className="font-medium text-muted-foreground">{s.size}</div>
-                      <div className="mt-0.5 space-y-0.5 pl-2">
-                        {playersInSize.map((r, idx) => (
-                          <div key={idx} className="text-foreground">
-                            {r.jerseyNumber && <span className="font-mono">#{r.jerseyNumber} </span>}
-                            {r.playerName}
-                          </div>
-                        ))}
+                {(() => {
+                  // Get unique sizes from roster entries
+                  const rosterSizes = [...new Set(job.roster.map((r) => r.size))];
+                  // Use roster sizes for grouping (handles ONE_SIZE mismatch)
+                  const sizesToShow = rosterSizes.length > 0 ? rosterSizes : job.sizes.map((s) => s.size);
+                  return sizesToShow.map((size) => {
+                    const playersInSize = job.roster.filter((r) => r.size === size);
+                    if (playersInSize.length === 0) return null;
+                    return (
+                      <div key={size} className="text-xs">
+                        <div className="font-medium text-muted-foreground">{size}</div>
+                        <div className="mt-0.5 space-y-0.5 pl-2">
+                          {playersInSize.map((r, idx) => (
+                            <div key={idx} className="text-foreground">
+                              {r.jerseyNumber && <span className="font-mono">#{r.jerseyNumber} </span>}
+                              {r.playerName}
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </details>
           )}

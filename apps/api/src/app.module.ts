@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { CategoriesModule } from './categories/categories.module.js';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { CostingModule } from './costing/costing.module.js';
 import { CustomersModule } from './customers/customers.module.js';
@@ -47,6 +48,8 @@ import { UsersModule } from './users/users.module.js';
   ],
   controllers: [HealthController],
   providers: [
+    // Global exception filter
+    { provide: APP_FILTER, useClass: HttpExceptionFilter },
     // Order matters: rate limit, then authenticate, then authorise.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useExisting: JwtAuthGuard },
