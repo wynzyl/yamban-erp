@@ -15,6 +15,7 @@ import type {
 } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
+import { escapeLikeTerm, parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import { CostingService } from '../costing/costing.service.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
@@ -107,11 +108,175 @@ export class OrdersService {
     private readonly costingService: CostingService,
   ) {}
 
+  /**
+   * Creates all order snapshots when confirming an order:
+   * - Material snapshots from recipes
+   * - Machine process snapshots
+   * - Production jobs for all stages
+   * - Computes and stores estimated costs
+   *
+   * Must be called within a transaction.
+   */
+  private async createOrderSnapshots(
+    tx: Database,
+    orderId: string,
+    electricityRatePerKwh: string | null,
+  ): Promise<{ hasShortage: boolean }> {
+    // Fetch all order items
+    const items = await tx
+      .select({
+        id: orderItems.id,
+        productId: orderItems.productId,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+
+    let hasShortage = false;
+
+    // Create material snapshots and production jobs for each item
+    for (const item of items) {
+      // Get sizes for this item
+      const sizes = await tx
+        .select({ size: orderItemSizes.size, quantity: orderItemSizes.quantity })
+        .from(orderItemSizes)
+        .where(eq(orderItemSizes.orderItemId, item.id));
+
+      // Look up the recipe for this product
+      const [recipe] = await tx
+        .select({ id: productRecipes.id })
+        .from(productRecipes)
+        .where(eq(productRecipes.productId, item.productId))
+        .limit(1);
+
+      if (recipe) {
+        // Get recipe materials
+        const recipeMatRows = await tx
+          .select({
+            materialId: recipeMaterials.materialId,
+            quantityPerPiece: recipeMaterials.quantityPerPiece,
+            stage: recipeMaterials.stage,
+            unit: materials.unit,
+            averageUnitCost: materials.averageUnitCost,
+            stockOnHand: materials.stockOnHand,
+          })
+          .from(recipeMaterials)
+          .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
+          .where(eq(recipeMaterials.recipeId, recipe.id));
+
+        // Copy materials for each size
+        for (const sizeRow of sizes) {
+          for (const mat of recipeMatRows) {
+            const qtyPerPiece = parseDecimal(mat.quantityPerPiece);
+            const totalQty = qtyPerPiece * sizeRow.quantity;
+            const unitCost = parseDecimal(mat.averageUnitCost);
+            const totalCost = totalQty * unitCost;
+
+            await tx.insert(orderMaterials).values({
+              orderItemId: item.id,
+              materialId: mat.materialId,
+              size: sizeRow.size,
+              quantityPerPiece: mat.quantityPerPiece,
+              totalQuantity: totalQty.toFixed(3),
+              unit: mat.unit,
+              unitCost: mat.averageUnitCost,
+              totalCost: totalCost.toFixed(2),
+              stage: mat.stage,
+            });
+
+            // Check if this material will create a shortage
+            if (parseDecimal(mat.stockOnHand) < totalQty) {
+              hasShortage = true;
+            }
+          }
+        }
+      }
+
+      // Copy machine processes for this product
+      const processes = await tx
+        .select({
+          machineId: productSizeProcesses.machineId,
+          minutesPerPiece: productSizeProcesses.minutesPerPiece,
+          powerKw: machines.powerKw,
+        })
+        .from(productSizeProcesses)
+        .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
+        .where(eq(productSizeProcesses.productId, item.productId));
+
+      // Create orderItemProcesses for each size
+      for (const sizeRow of sizes) {
+        for (const proc of processes) {
+          await tx.insert(orderItemProcesses).values({
+            orderItemId: item.id,
+            size: sizeRow.size,
+            machineId: proc.machineId,
+            powerKw: proc.powerKw,
+            minutesPerPiece: proc.minutesPerPiece,
+            quantity: sizeRow.quantity,
+          });
+        }
+      }
+
+      // Create production jobs for each stage
+      for (const [i, stage] of PRODUCTION_STAGES.entries()) {
+        const [job] = await tx
+          .insert(productionJobs)
+          .values({
+            orderId: orderId,
+            orderItemId: item.id,
+            stage,
+            sequence: i + 1,
+            plannedQuantity: item.quantity,
+          })
+          .returning();
+
+        // For DESIGN stage, also create a design_jobs row
+        if (stage === 'DESIGN' && job) {
+          await tx.insert(designJobs).values({
+            productionJobId: job.id,
+          });
+        }
+      }
+    }
+
+    // Update material status if there's a shortage
+    if (hasShortage) {
+      await tx
+        .update(orders)
+        .set({ materialStatus: 'SHORT' })
+        .where(eq(orders.id, orderId));
+    }
+
+    // Compute estimated costs and create labor lines
+    const { costs, laborLines } = await this.costingService.computeEstimatedCosts(
+      orderId,
+      electricityRatePerKwh,
+      tx,
+    );
+
+    // Insert orderItemLabor rows
+    if (laborLines.length > 0) {
+      await tx.insert(orderItemLabor).values(laborLines);
+    }
+
+    // Update order with estimated costs
+    await tx
+      .update(orders)
+      .set({
+        estimatedMaterialCost: costs.materialCost.toFixed(2),
+        estimatedElectricityCost: costs.electricityCost.toFixed(2),
+        estimatedLaborCost: costs.laborCost.toFixed(2),
+      })
+      .where(eq(orders.id, orderId));
+
+    return { hasShortage };
+  }
+
   async list(q: ListQuery & { status?: string }, role?: UserRole): Promise<Paginated<OrderListRow>> {
     const conditions: SQL[] = [];
 
     if (q.search) {
-      const term = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      const term = escapeLikeTerm(q.search);
       conditions.push(
         or(
           ilike(orders.orderNumber, term),
@@ -208,10 +373,10 @@ export class OrdersService {
 
       // Add cost data for Owner
       if (isOwner && row.estimatedMaterialCost != null) {
-        const matCost = parseFloat(row.estimatedMaterialCost ?? '0');
-        const elecCost = parseFloat(row.estimatedElectricityCost ?? '0');
-        const laborCost = parseFloat(row.estimatedLaborCost ?? '0');
-        base.totalProductionCost = (matCost + elecCost + laborCost).toFixed(2);
+        const matCost = parseDecimal(row.estimatedMaterialCost);
+        const elecCost = parseDecimal(row.estimatedElectricityCost);
+        const laborCost = parseDecimal(row.estimatedLaborCost);
+        base.totalProductionCost = toFixedDecimal(matCost + elecCost + laborCost, 2);
       }
 
       return base;
@@ -377,9 +542,9 @@ export class OrdersService {
     // Build cost breakdown for Owner
     let costBreakdown: OrderCostBreakdown | undefined;
     if (isOwner && order.estimatedMaterialCost != null) {
-      const estMat = parseFloat(order.estimatedMaterialCost ?? '0');
-      const estElec = parseFloat(order.estimatedElectricityCost ?? '0');
-      const estLabor = parseFloat(order.estimatedLaborCost ?? '0');
+      const estMat = parseDecimal(order.estimatedMaterialCost);
+      const estElec = parseDecimal(order.estimatedElectricityCost);
+      const estLabor = parseDecimal(order.estimatedLaborCost);
       const estTotal = estMat + estElec + estLabor;
 
       costBreakdown = {
@@ -387,7 +552,7 @@ export class OrdersService {
           materialCost: order.estimatedMaterialCost ?? '0.00',
           electricityCost: order.estimatedElectricityCost ?? '0.00',
           laborCost: order.estimatedLaborCost ?? '0.00',
-          total: estTotal.toFixed(2),
+          total: toFixedDecimal(estTotal, 2),
         },
         actual: null,
         variance: null,
@@ -395,24 +560,24 @@ export class OrdersService {
 
       // Add actual costs if available (order is READY or later)
       if (order.actualMaterialCost != null) {
-        const actMat = parseFloat(order.actualMaterialCost ?? '0');
-        const actElec = parseFloat(order.actualElectricityCost ?? '0');
-        const actLabor = parseFloat(order.actualLaborCost ?? '0');
+        const actMat = parseDecimal(order.actualMaterialCost);
+        const actElec = parseDecimal(order.actualElectricityCost);
+        const actLabor = parseDecimal(order.actualLaborCost);
         const actTotal = actMat + actElec + actLabor;
 
         costBreakdown.actual = {
           materialCost: order.actualMaterialCost,
           electricityCost: order.actualElectricityCost,
           laborCost: order.actualLaborCost,
-          total: actTotal.toFixed(2),
+          total: toFixedDecimal(actTotal, 2),
         };
 
         // Calculate variance (actual - estimated)
         costBreakdown.variance = {
-          materialCost: (actMat - estMat).toFixed(2),
-          electricityCost: (actElec - estElec).toFixed(2),
-          laborCost: (actLabor - estLabor).toFixed(2),
-          total: (actTotal - estTotal).toFixed(2),
+          materialCost: toFixedDecimal(actMat - estMat, 2),
+          electricityCost: toFixedDecimal(actElec - estElec, 2),
+          laborCost: toFixedDecimal(actLabor - estLabor, 2),
+          total: toFixedDecimal(actTotal - estTotal, 2),
         };
       }
     }
@@ -451,10 +616,10 @@ export class OrdersService {
     let subtotal = 0;
     for (const item of data.items) {
       for (const size of item.sizes) {
-        subtotal += parseFloat(size.unitPrice) * size.quantity;
+        subtotal += parseDecimal(size.unitPrice) * size.quantity;
       }
     }
-    const discount = parseFloat(data.discount ?? '0');
+    const discount = parseDecimal(data.discount);
     const total = Math.max(0, subtotal - discount);
 
     return await this.db.transaction(async (tx) => {
@@ -480,7 +645,7 @@ export class OrdersService {
         let itemSubtotal = 0;
         for (const size of itemData.sizes) {
           itemQty += size.quantity;
-          itemSubtotal += parseFloat(size.unitPrice) * size.quantity;
+          itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
         }
 
         const [item] = await tx
@@ -496,7 +661,7 @@ export class OrdersService {
 
         // Insert sizes
         for (const sizeData of itemData.sizes) {
-          const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+          const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
           await tx.insert(orderItemSizes).values({
             orderItemId: item!.id,
             size: sizeData.size,
@@ -549,7 +714,7 @@ export class OrdersService {
       // Recalculate total
       const [order] = await this.db.select({ subtotal: orders.subtotal }).from(orders).where(eq(orders.id, id));
       if (order) {
-        const total = Math.max(0, parseFloat(order.subtotal) - parseFloat(data.discount));
+        const total = Math.max(0, parseDecimal(order.subtotal) - parseDecimal(data.discount));
         updates.total = total.toFixed(2);
       }
     }
@@ -578,154 +743,8 @@ export class OrdersService {
 
         await tx.update(orders).set(updates).where(eq(orders.id, id));
 
-        // Fetch all order items with their sizes
-        const items = await tx
-          .select({
-            id: orderItems.id,
-            productId: orderItems.productId,
-            quantity: orderItems.quantity,
-          })
-          .from(orderItems)
-          .where(eq(orderItems.orderId, id));
-
-        // Track if any materials are short
-        let hasShortage = false;
-
-        // Create material snapshots and production jobs for each item
-        for (const item of items) {
-          // Get sizes for this item
-          const sizes = await tx
-            .select({ size: orderItemSizes.size, quantity: orderItemSizes.quantity })
-            .from(orderItemSizes)
-            .where(eq(orderItemSizes.orderItemId, item.id));
-
-          // Look up the recipe for this product (recipe is per product, not per size)
-          const [recipe] = await tx
-            .select({ id: productRecipes.id })
-            .from(productRecipes)
-            .where(eq(productRecipes.productId, item.productId))
-            .limit(1);
-
-          if (recipe) {
-            // Get recipe materials
-            const recipeMatRows = await tx
-              .select({
-                materialId: recipeMaterials.materialId,
-                quantityPerPiece: recipeMaterials.quantityPerPiece,
-                stage: recipeMaterials.stage,
-                unit: materials.unit,
-                averageUnitCost: materials.averageUnitCost,
-                stockOnHand: materials.stockOnHand,
-              })
-              .from(recipeMaterials)
-              .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
-              .where(eq(recipeMaterials.recipeId, recipe.id));
-
-            // Copy materials for each size
-            for (const sizeRow of sizes) {
-              for (const mat of recipeMatRows) {
-                const qtyPerPiece = parseFloat(mat.quantityPerPiece);
-                const totalQty = qtyPerPiece * sizeRow.quantity;
-                const unitCost = parseFloat(mat.averageUnitCost);
-                const totalCost = totalQty * unitCost;
-
-                await tx.insert(orderMaterials).values({
-                  orderItemId: item.id,
-                  materialId: mat.materialId,
-                  size: sizeRow.size,
-                  quantityPerPiece: mat.quantityPerPiece,
-                  totalQuantity: totalQty.toFixed(3),
-                  unit: mat.unit,
-                  unitCost: mat.averageUnitCost,
-                  totalCost: totalCost.toFixed(2),
-                  stage: mat.stage,
-                });
-
-                // Check if this material will create a shortage
-                const stock = parseFloat(mat.stockOnHand);
-                if (stock < totalQty) {
-                  hasShortage = true;
-                }
-              }
-            }
-          }
-
-          // Copy machine processes for this product (processes are per-product, not per-size)
-          const processes = await tx
-            .select({
-              machineId: productSizeProcesses.machineId,
-              minutesPerPiece: productSizeProcesses.minutesPerPiece,
-              powerKw: machines.powerKw,
-            })
-            .from(productSizeProcesses)
-            .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
-            .where(eq(productSizeProcesses.productId, item.productId));
-
-          // Create orderItemProcesses for each size with that size's quantity
-          for (const sizeRow of sizes) {
-            for (const proc of processes) {
-              await tx.insert(orderItemProcesses).values({
-                orderItemId: item.id,
-                size: sizeRow.size,
-                machineId: proc.machineId,
-                powerKw: proc.powerKw,
-                minutesPerPiece: proc.minutesPerPiece,
-                quantity: sizeRow.quantity,
-              });
-            }
-          }
-
-          // Create production jobs for each stage
-          for (const [i, stage] of PRODUCTION_STAGES.entries()) {
-            const [job] = await tx
-              .insert(productionJobs)
-              .values({
-                orderId: id,
-                orderItemId: item.id,
-                stage,
-                sequence: i + 1,
-                plannedQuantity: item.quantity,
-              })
-              .returning();
-
-            // For DESIGN stage, also create a design_jobs row
-            if (stage === 'DESIGN' && job) {
-              await tx.insert(designJobs).values({
-                productionJobId: job.id,
-              });
-            }
-          }
-        }
-
-        // Update material status based on shortage check
-        if (hasShortage) {
-          await tx
-            .update(orders)
-            .set({ materialStatus: 'SHORT' })
-            .where(eq(orders.id, id));
-        }
-
-        // Compute estimated costs and create labor lines
-        const { costs, laborLines } = await this.costingService.computeEstimatedCosts(
-          id,
-          currentRate?.ratePerKwh ?? null,
-          tx,
-        );
-
-        // Insert orderItemLabor rows
-        if (laborLines.length > 0) {
-          await tx.insert(orderItemLabor).values(laborLines);
-        }
-
-        // Update order with estimated costs
-        await tx
-          .update(orders)
-          .set({
-            estimatedMaterialCost: costs.materialCost.toFixed(2),
-            estimatedElectricityCost: costs.electricityCost.toFixed(2),
-            estimatedLaborCost: costs.laborCost.toFixed(2),
-          })
-          .where(eq(orders.id, id));
+        // Create all order snapshots (materials, processes, production jobs, costs)
+        await this.createOrderSnapshots(tx, id, currentRate?.ratePerKwh ?? null);
 
         // Return the fully updated order
         const [finalOrder] = await tx.select().from(orders).where(eq(orders.id, id));
@@ -829,10 +848,10 @@ export class OrdersService {
     let subtotal = 0;
     for (const item of data.items) {
       for (const size of item.sizes) {
-        subtotal += parseFloat(size.unitPrice) * size.quantity;
+        subtotal += parseDecimal(size.unitPrice) * size.quantity;
       }
     }
-    const discount = parseFloat(data.discount ?? '0');
+    const discount = parseDecimal(data.discount);
     const total = Math.max(0, subtotal - discount);
 
     return await this.db.transaction(async (tx) => {
@@ -863,7 +882,7 @@ export class OrdersService {
         let itemSubtotal = 0;
         for (const size of itemData.sizes) {
           itemQty += size.quantity;
-          itemSubtotal += parseFloat(size.unitPrice) * size.quantity;
+          itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
         }
 
         let itemId: string;
@@ -903,7 +922,7 @@ export class OrdersService {
 
         // Insert sizes
         for (const sizeData of itemData.sizes) {
-          const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+          const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
           await tx.insert(orderItemSizes).values({
             orderItemId: itemId,
             size: sizeData.size,
@@ -1019,7 +1038,7 @@ export class OrdersService {
           )
           .limit(1);
 
-        const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+        const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
         totalQuantity += sizeData.quantity;
 
         if (existingSize) {
@@ -1040,7 +1059,7 @@ export class OrdersService {
         .from(orderItemSizes)
         .where(eq(orderItemSizes.orderItemId, itemId));
 
-      const itemSubtotal = sizes.reduce((sum, s) => sum + parseFloat(s.subtotal), 0);
+      const itemSubtotal = sizes.reduce((sum, s) => sum + parseDecimal(s.subtotal), 0);
       const itemQuantity = sizes.reduce((sum, s) => sum + s.quantity, 0);
       await tx
         .update(orderItems)
@@ -1053,14 +1072,14 @@ export class OrdersService {
         .from(orderItems)
         .where(eq(orderItems.orderId, orderId));
 
-      const orderSubtotal = allItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+      const orderSubtotal = allItems.reduce((sum, i) => sum + parseDecimal(i.subtotal), 0);
 
       const [order] = await tx
         .select({ discount: orders.discount })
         .from(orders)
         .where(eq(orders.id, orderId));
 
-      const discount = parseFloat(order?.discount ?? '0');
+      const discount = parseDecimal(order?.discount);
       const orderTotal = Math.max(0, orderSubtotal - discount);
 
       await tx
@@ -1122,7 +1141,7 @@ export class OrdersService {
       let itemSubtotal = 0;
       for (const size of data.sizes) {
         itemQty += size.quantity;
-        itemSubtotal += parseFloat(size.unitPrice) * size.quantity;
+        itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
       }
 
       // Insert order item
@@ -1139,7 +1158,7 @@ export class OrdersService {
 
       // Insert sizes
       for (const sizeData of data.sizes) {
-        const sizeSubtotal = parseFloat(sizeData.unitPrice) * sizeData.quantity;
+        const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
         await tx.insert(orderItemSizes).values({
           orderItemId: item!.id,
           size: sizeData.size,
@@ -1190,14 +1209,14 @@ export class OrdersService {
         .from(orderItems)
         .where(eq(orderItems.orderId, orderId));
 
-      const orderSubtotal = allItems.reduce((sum, i) => sum + parseFloat(i.subtotal), 0);
+      const orderSubtotal = allItems.reduce((sum, i) => sum + parseDecimal(i.subtotal), 0);
 
       const [existingOrder] = await tx
         .select({ discount: orders.discount })
         .from(orders)
         .where(eq(orders.id, orderId));
 
-      const discount = parseFloat(existingOrder?.discount ?? '0');
+      const discount = parseDecimal(existingOrder?.discount);
       const orderTotal = Math.max(0, orderSubtotal - discount);
 
       await tx
@@ -1252,154 +1271,8 @@ export class OrdersService {
         })
         .where(eq(orders.id, id));
 
-      // Fetch all order items with product info
-      const items = await tx
-        .select({
-          id: orderItems.id,
-          productId: orderItems.productId,
-          quantity: orderItems.quantity,
-        })
-        .from(orderItems)
-        .where(eq(orderItems.orderId, id));
-
-      // Track if any materials are short
-      let hasShortage = false;
-
-      // Create material snapshots and production jobs for each item
-      for (const item of items) {
-        // Get sizes for this item
-        const sizes = await tx
-          .select({ size: orderItemSizes.size, quantity: orderItemSizes.quantity })
-          .from(orderItemSizes)
-          .where(eq(orderItemSizes.orderItemId, item.id));
-
-        // Look up the recipe for this product (recipe is per product, not per size)
-        const [recipe] = await tx
-          .select({ id: productRecipes.id })
-          .from(productRecipes)
-          .where(eq(productRecipes.productId, item.productId))
-          .limit(1);
-
-        if (recipe) {
-          // Get recipe materials
-          const recipeMatRows = await tx
-            .select({
-              materialId: recipeMaterials.materialId,
-              quantityPerPiece: recipeMaterials.quantityPerPiece,
-              stage: recipeMaterials.stage,
-              unit: materials.unit,
-              averageUnitCost: materials.averageUnitCost,
-              stockOnHand: materials.stockOnHand,
-            })
-            .from(recipeMaterials)
-            .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
-            .where(eq(recipeMaterials.recipeId, recipe.id));
-
-          // Copy materials for each size
-          for (const sizeRow of sizes) {
-            for (const mat of recipeMatRows) {
-              const qtyPerPiece = parseFloat(mat.quantityPerPiece);
-              const totalQty = qtyPerPiece * sizeRow.quantity;
-              const unitCost = parseFloat(mat.averageUnitCost);
-              const totalCost = totalQty * unitCost;
-
-              await tx.insert(orderMaterials).values({
-                orderItemId: item.id,
-                materialId: mat.materialId,
-                size: sizeRow.size,
-                quantityPerPiece: mat.quantityPerPiece,
-                totalQuantity: totalQty.toFixed(3),
-                unit: mat.unit,
-                unitCost: mat.averageUnitCost,
-                totalCost: totalCost.toFixed(2),
-                stage: mat.stage,
-              });
-
-              // Check if this material will create a shortage
-              const stock = parseFloat(mat.stockOnHand);
-              if (stock < totalQty) {
-                hasShortage = true;
-              }
-            }
-          }
-        }
-
-        // Copy machine processes for this product (processes are per-product, not per-size)
-        const processes = await tx
-          .select({
-            machineId: productSizeProcesses.machineId,
-            minutesPerPiece: productSizeProcesses.minutesPerPiece,
-            powerKw: machines.powerKw,
-          })
-          .from(productSizeProcesses)
-          .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
-          .where(eq(productSizeProcesses.productId, item.productId));
-
-        // Create orderItemProcesses for each size with that size's quantity
-        for (const sizeRow of sizes) {
-          for (const proc of processes) {
-            await tx.insert(orderItemProcesses).values({
-              orderItemId: item.id,
-              size: sizeRow.size,
-              machineId: proc.machineId,
-              powerKw: proc.powerKw,
-              minutesPerPiece: proc.minutesPerPiece,
-              quantity: sizeRow.quantity,
-            });
-          }
-        }
-
-        // Create production jobs for each stage
-        for (const [i, stage] of PRODUCTION_STAGES.entries()) {
-          const [job] = await tx
-            .insert(productionJobs)
-            .values({
-              orderId: id,
-              orderItemId: item.id,
-              stage,
-              sequence: i + 1,
-              plannedQuantity: item.quantity,
-            })
-            .returning();
-
-          // For DESIGN stage, also create a design_jobs row
-          if (stage === 'DESIGN' && job) {
-            await tx.insert(designJobs).values({
-              productionJobId: job.id,
-            });
-          }
-        }
-      }
-
-      // Update material status based on shortage check
-      if (hasShortage) {
-        await tx
-          .update(orders)
-          .set({ materialStatus: 'SHORT' })
-          .where(eq(orders.id, id));
-      }
-
-      // Compute estimated costs and create labor lines
-      const { costs, laborLines } = await this.costingService.computeEstimatedCosts(
-        id,
-        currentRate?.ratePerKwh ?? null,
-        tx,
-      );
-
-      // Insert orderItemLabor rows
-      if (laborLines.length > 0) {
-        await tx.insert(orderItemLabor).values(laborLines);
-      }
-
-      // Update order with estimated costs
-      await tx
-        .update(orders)
-        .set({
-          estimatedMaterialCost: costs.materialCost.toFixed(2),
-          estimatedElectricityCost: costs.electricityCost.toFixed(2),
-          estimatedLaborCost: costs.laborCost.toFixed(2),
-        })
-        .where(eq(orders.id, id));
+      // Create all order snapshots (materials, processes, production jobs, costs)
+      await this.createOrderSnapshots(tx, id, currentRate?.ratePerKwh ?? null);
     });
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { CreateCustomerData, ListQuery, Paginated, UpdateCustomerData } from '@yamban/shared';
 import { and, asc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { escapeLikeTerm } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { customers, organizations } from '../db/schema/index.js';
@@ -15,7 +16,7 @@ export class CustomersService {
   async list(q: ListQuery): Promise<Paginated<CustomerRow>> {
     const conditions: SQL[] = [eq(customers.active, true)];
     if (q.search) {
-      const term = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      const term = escapeLikeTerm(q.search);
       conditions.push(
         or(
           ilike(customers.firstName, term),

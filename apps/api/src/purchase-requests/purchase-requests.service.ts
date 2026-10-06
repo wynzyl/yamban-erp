@@ -7,7 +7,8 @@ import type {
   ReceivePurchaseRequestData,
   UpdatePurchaseRequestData,
 } from '@yamban/shared';
-import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { escapeLikeTerm, parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -109,7 +110,7 @@ export class PurchaseRequestsService {
       conditions.push(eq(purchaseRequests.supplierId, q.supplierId));
     }
     if (q.search) {
-      const term = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      const term = escapeLikeTerm(q.search);
       conditions.push(
         or(
           ilike(purchaseRequests.prNumber, term),
@@ -210,21 +211,40 @@ export class PurchaseRequestsService {
       .innerJoin(materials, eq(materials.id, purchaseRequestLines.materialId))
       .where(eq(purchaseRequestLines.purchaseRequestId, id));
 
-    // Get linked orders for each line
-    const lines: PurchaseRequestLineRow[] = [];
-    for (const line of linesRaw) {
-      const linkedOrders = await this.db
-        .select({
-          orderId: purchaseRequestLineOrders.orderId,
-          orderNumber: orders.orderNumber,
-          quantity: purchaseRequestLineOrders.quantity,
-        })
-        .from(purchaseRequestLineOrders)
-        .innerJoin(orders, eq(orders.id, purchaseRequestLineOrders.orderId))
-        .where(eq(purchaseRequestLineOrders.purchaseRequestLineId, line.id));
-
-      lines.push({ ...line, linkedOrders });
+    if (linesRaw.length === 0) {
+      return { ...pr, lines: [] };
     }
+
+    // Batch fetch all linked orders for all lines at once
+    const lineIds = linesRaw.map((l) => l.id);
+    const allLinkedOrders = await this.db
+      .select({
+        purchaseRequestLineId: purchaseRequestLineOrders.purchaseRequestLineId,
+        orderId: purchaseRequestLineOrders.orderId,
+        orderNumber: orders.orderNumber,
+        quantity: purchaseRequestLineOrders.quantity,
+      })
+      .from(purchaseRequestLineOrders)
+      .innerJoin(orders, eq(orders.id, purchaseRequestLineOrders.orderId))
+      .where(inArray(purchaseRequestLineOrders.purchaseRequestLineId, lineIds));
+
+    // Group linked orders by line ID
+    const linkedOrdersByLineId = new Map<string, { orderId: string; orderNumber: string; quantity: string }[]>();
+    for (const lo of allLinkedOrders) {
+      const existing = linkedOrdersByLineId.get(lo.purchaseRequestLineId) ?? [];
+      existing.push({
+        orderId: lo.orderId,
+        orderNumber: lo.orderNumber,
+        quantity: lo.quantity,
+      });
+      linkedOrdersByLineId.set(lo.purchaseRequestLineId, existing);
+    }
+
+    // Build lines with linked orders
+    const lines: PurchaseRequestLineRow[] = linesRaw.map((line) => ({
+      ...line,
+      linkedOrders: linkedOrdersByLineId.get(line.id) ?? [],
+    }));
 
     return { ...pr, lines };
   }
@@ -257,7 +277,7 @@ export class PurchaseRequestsService {
     const materialReservations = new Map<string, { total: number; orders: { orderId: string; orderNumber: string; quantity: string }[] }>();
     for (const res of reservations) {
       const existing = materialReservations.get(res.materialId) ?? { total: 0, orders: [] };
-      const qty = parseFloat(res.quantity);
+      const qty = parseDecimal(res.quantity);
       existing.total += qty;
       existing.orders.push({
         orderId: res.orderId,
@@ -290,7 +310,7 @@ export class PurchaseRequestsService {
 
       if (!mat) continue;
 
-      const stock = parseFloat(mat.stockOnHand);
+      const stock = parseDecimal(mat.stockOnHand);
       const reserved = reservation.total;
       const available = stock;
       const shortage = reserved - available;
@@ -345,8 +365,8 @@ export class PurchaseRequestsService {
       // Skip if already processed from order shortages
       if (processedMaterialIds.has(mat.id)) continue;
 
-      const stock = parseFloat(mat.stockOnHand);
-      const reorderLevel = parseFloat(mat.reorderLevel);
+      const stock = parseDecimal(mat.stockOnHand);
+      const reorderLevel = parseDecimal(mat.reorderLevel);
 
       // Calculate shortage as: reorder level - current stock (to bring stock up to reorder level)
       const shortage = reorderLevel - stock;
@@ -456,11 +476,11 @@ export class PurchaseRequestsService {
         // Insert new lines
         for (const shortage of supplierShortages) {
           // Round up to whole purchase units
-          const purchaseQty = parseFloat(shortage.purchaseQuantity);
-          const shortageQty = parseFloat(shortage.shortage);
+          const purchaseQty = parseDecimal(shortage.purchaseQuantity);
+          const shortageQty = parseDecimal(shortage.shortage);
           const unitsNeeded = Math.ceil(shortageQty / purchaseQty);
           const roundedQty = unitsNeeded * purchaseQty;
-          const estimatedTotal = roundedQty * parseFloat(shortage.averageUnitCost);
+          const estimatedTotal = roundedQty * parseDecimal(shortage.averageUnitCost);
 
           const [line] = await tx
             .insert(purchaseRequestLines)
@@ -547,8 +567,8 @@ export class PurchaseRequestsService {
 
       // Insert lines
       for (const lineData of data.lines) {
-        const qty = parseFloat(lineData.purchaseQuantity);
-        const cost = parseFloat(lineData.estimatedUnitCost);
+        const qty = parseDecimal(lineData.purchaseQuantity);
+        const cost = parseDecimal(lineData.estimatedUnitCost);
         const total = qty * cost;
 
         await tx.insert(purchaseRequestLines).values({
@@ -594,8 +614,8 @@ export class PurchaseRequestsService {
       // Update lines if provided
       if (data.lines && data.lines.length > 0) {
         for (const lineData of data.lines) {
-          const qty = parseFloat(lineData.purchaseQuantity);
-          const cost = parseFloat(lineData.estimatedUnitCost);
+          const qty = parseDecimal(lineData.purchaseQuantity);
+          const cost = parseDecimal(lineData.estimatedUnitCost);
           const total = qty * cost;
 
           await tx
@@ -626,8 +646,8 @@ export class PurchaseRequestsService {
       throw new BadRequestException('Lines can only be added to DRAFT or PRINTED purchase requests.');
     }
 
-    const qty = parseFloat(data.purchaseQuantity);
-    const cost = parseFloat(data.estimatedUnitCost);
+    const qty = parseDecimal(data.purchaseQuantity);
+    const cost = parseDecimal(data.estimatedUnitCost);
     const total = qty * cost;
 
     await this.db.insert(purchaseRequestLines).values({
@@ -783,8 +803,8 @@ export class PurchaseRequestsService {
         });
 
         // Update stock cache and moving average
-        const qty = parseFloat(lineData.receivedQuantity);
-        const cost = parseFloat(lineData.actualUnitCost);
+        const qty = parseDecimal(lineData.receivedQuantity);
+        const cost = parseDecimal(lineData.actualUnitCost);
 
         // Get current material data
         const [mat] = await tx
@@ -798,11 +818,11 @@ export class PurchaseRequestsService {
 
         if (mat) {
           // Update stock
-          const newStock = parseFloat(mat.stockOnHand) + qty;
+          const newStock = parseDecimal(mat.stockOnHand) + qty;
 
           // Calculate new moving average
-          const currentStock = parseFloat(mat.stockOnHand);
-          const currentAvg = parseFloat(mat.averageUnitCost);
+          const currentStock = parseDecimal(mat.stockOnHand);
+          const currentAvg = parseDecimal(mat.averageUnitCost);
           let newAvg: number;
 
           if (currentStock <= 0) {

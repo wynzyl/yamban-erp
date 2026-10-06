@@ -8,6 +8,7 @@ import type {
   ProcessReturnData,
 } from '@yamban/shared';
 import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -219,7 +220,7 @@ export class InventoryService {
     if (!material) throw new NotFoundException('Material not found.');
 
     const reserved = reservedResult?.reserved ?? '0';
-    const available = (parseFloat(material.stockOnHand) - parseFloat(reserved)).toFixed(3);
+    const available = toFixedDecimal(parseDecimal(material.stockOnHand) - parseDecimal(reserved), 3);
 
     // Get recent transactions
     const transactions = await this.db
@@ -289,7 +290,7 @@ export class InventoryService {
       await this.updateStockCache(tx, data.materialId);
 
       // Update moving average cost only on PURCHASE transactions
-      if (data.type === 'PURCHASE' && parseFloat(data.quantity) > 0) {
+      if (data.type === 'PURCHASE' && parseDecimal(data.quantity) > 0) {
         await this.updateMovingAverageCost(tx, data.materialId, data.quantity, data.unitCost);
       }
 
@@ -414,7 +415,7 @@ export class InventoryService {
 
       for (const line of data.lines) {
         // Record return (positive quantity - adds back to stock)
-        if (parseFloat(line.returnQuantity) > 0) {
+        if (parseDecimal(line.returnQuantity) > 0) {
           const [returnTxn] = await tx
             .insert(inventoryTransactions)
             .values({
@@ -431,7 +432,7 @@ export class InventoryService {
         }
 
         // Record waste (negative quantity)
-        if (parseFloat(line.wasteQuantity) > 0) {
+        if (parseDecimal(line.wasteQuantity) > 0) {
           const [wasteTxn] = await tx
             .insert(inventoryTransactions)
             .values({
@@ -488,10 +489,10 @@ export class InventoryService {
 
     if (!mat) return;
 
-    const currentStock = parseFloat(mat.stockOnHand);
-    const currentAvgCost = parseFloat(mat.averageUnitCost);
-    const newQty = parseFloat(purchaseQty);
-    const newCost = parseFloat(purchaseUnitCost);
+    const currentStock = parseDecimal(mat.stockOnHand);
+    const currentAvgCost = parseDecimal(mat.averageUnitCost);
+    const newQty = parseDecimal(purchaseQty);
+    const newCost = parseDecimal(purchaseUnitCost);
 
     // Moving average formula:
     // New Avg = (Current Stock * Current Avg + New Qty * New Cost) / (Current Stock + New Qty)

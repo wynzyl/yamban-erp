@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { JobStatus, ProductionStage, StartJobData } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import { CostingService } from '../costing/costing.service.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
@@ -133,69 +134,91 @@ export class ProductionService {
       .innerJoin(products, eq(products.id, orderItems.productId))
       .where(stageFilter);
 
-    // Get payment info and sizes for each job
-    const result: StageJobRow[] = [];
+    if (rows.length === 0) return [];
 
-    for (const row of rows) {
-      // Check if order has any payments
-      const [paymentCheck] = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(payments)
-        .where(eq(payments.orderId, row.orderId));
+    // Extract unique IDs for batched queries
+    const orderIds = [...new Set(rows.map((r) => r.orderId))];
+    const orderItemIds = [...new Set(rows.map((r) => r.orderItemId))];
 
-      // Get sizes for this order item
-      const sizesData = await this.db
-        .select({
-          size: orderItemSizes.size,
-          quantity: orderItemSizes.quantity,
-        })
-        .from(orderItemSizes)
-        .where(eq(orderItemSizes.orderItemId, row.orderItemId));
+    // Batch query 1: Get orders with payments (instead of counting per order)
+    const ordersWithPayments = await this.db
+      .select({ orderId: payments.orderId })
+      .from(payments)
+      .where(inArray(payments.orderId, orderIds))
+      .groupBy(payments.orderId);
+    const ordersWithPaymentSet = new Set(ordersWithPayments.map((p) => p.orderId));
 
-      // Get roster for this order item
-      const rosterData = await this.db
-        .select({
-          playerName: orderRoster.playerName,
-          jerseyNumber: orderRoster.jerseyNumber,
-          size: orderRoster.size,
-        })
-        .from(orderRoster)
-        .where(eq(orderRoster.orderItemId, row.orderItemId));
+    // Batch query 2: Get all sizes for all order items
+    const allSizes = await this.db
+      .select({
+        orderItemId: orderItemSizes.orderItemId,
+        size: orderItemSizes.size,
+        quantity: orderItemSizes.quantity,
+      })
+      .from(orderItemSizes)
+      .where(inArray(orderItemSizes.orderItemId, orderItemIds));
+    const sizesByItemId = new Map<string, { size: string; quantity: number }[]>();
+    for (const s of allSizes) {
+      const existing = sizesByItemId.get(s.orderItemId) ?? [];
+      existing.push({ size: s.size, quantity: s.quantity });
+      sizesByItemId.set(s.orderItemId, existing);
+    }
 
-      // Get final design file for this order item (via design job)
-      let designFile: DesignFileInfo | null = null;
-      const [designFileData] = await this.db
-        .select({
-          id: designFiles.id,
-          fileName: designFiles.fileName,
-          storageKey: designFiles.storageKey,
-          isFinal: designFiles.isFinal,
-        })
-        .from(designFiles)
-        .innerJoin(designJobs, eq(designJobs.id, designFiles.designJobId))
-        .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
-        .where(
-          and(
-            eq(productionJobs.orderItemId, row.orderItemId),
-            eq(designFiles.isFinal, true),
-          ),
-        )
-        .limit(1);
+    // Batch query 3: Get all roster entries for all order items
+    const allRoster = await this.db
+      .select({
+        orderItemId: orderRoster.orderItemId,
+        playerName: orderRoster.playerName,
+        jerseyNumber: orderRoster.jerseyNumber,
+        size: orderRoster.size,
+      })
+      .from(orderRoster)
+      .where(inArray(orderRoster.orderItemId, orderItemIds));
+    const rosterByItemId = new Map<string, RosterEntry[]>();
+    for (const r of allRoster) {
+      const existing = rosterByItemId.get(r.orderItemId) ?? [];
+      existing.push({ playerName: r.playerName, jerseyNumber: r.jerseyNumber, size: r.size });
+      rosterByItemId.set(r.orderItemId, existing);
+    }
 
-      if (designFileData) {
-        designFile = {
-          id: designFileData.id,
-          fileName: designFileData.fileName,
-          storageKey: designFileData.storageKey,
-          isFinal: designFileData.isFinal,
-        };
+    // Batch query 4: Get final design files for all order items
+    const allDesignFiles = await this.db
+      .select({
+        orderItemId: productionJobs.orderItemId,
+        id: designFiles.id,
+        fileName: designFiles.fileName,
+        storageKey: designFiles.storageKey,
+        isFinal: designFiles.isFinal,
+      })
+      .from(designFiles)
+      .innerJoin(designJobs, eq(designJobs.id, designFiles.designJobId))
+      .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
+      .where(
+        and(
+          inArray(productionJobs.orderItemId, orderItemIds),
+          eq(designFiles.isFinal, true),
+        ),
+      );
+    const designFileByItemId = new Map<string, DesignFileInfo>();
+    for (const df of allDesignFiles) {
+      // Only keep the first final design file per order item
+      if (!designFileByItemId.has(df.orderItemId)) {
+        designFileByItemId.set(df.orderItemId, {
+          id: df.id,
+          fileName: df.fileName,
+          storageKey: df.storageKey,
+          isFinal: df.isFinal,
+        });
       }
+    }
 
+    // Build result using batched data
+    return rows.map((row) => {
       const customerName = [row.customerFirstName, row.customerLastName]
         .filter(Boolean)
         .join(' ');
 
-      result.push({
+      return {
         id: row.id,
         orderItemId: row.orderItemId,
         orderId: row.orderId,
@@ -207,18 +230,12 @@ export class ProductionService {
         quantity: row.quantity,
         status: row.status,
         dueDate: row.dueDate,
-        hasPaidDownPayment: (paymentCheck?.count ?? 0) > 0,
-        sizes: sizesData.map((s) => ({ size: s.size, quantity: s.quantity })),
-        roster: rosterData.map((r) => ({
-          playerName: r.playerName,
-          jerseyNumber: r.jerseyNumber,
-          size: r.size,
-        })),
-        designFile,
-      });
-    }
-
-    return result;
+        hasPaidDownPayment: ordersWithPaymentSet.has(row.orderId),
+        sizes: sizesByItemId.get(row.orderItemId) ?? [],
+        roster: rosterByItemId.get(row.orderItemId) ?? [],
+        designFile: designFileByItemId.get(row.orderItemId) ?? null,
+      };
+    });
   }
 
   /** Get counts for the dashboard */
@@ -566,8 +583,8 @@ export class ProductionService {
           ),
         );
 
-      const totalNum = parseFloat(row.total);
-      const paidNum = parseFloat(paidResult?.paid ?? '0');
+      const totalNum = parseDecimal(row.total);
+      const paidNum = parseDecimal(paidResult?.paid);
       const balanceNum = totalNum - paidNum;
 
       const customerName = [row.customerFirstName, row.customerLastName]

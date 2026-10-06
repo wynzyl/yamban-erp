@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { CreateMaterialData, ListQuery, Paginated, UpdateMaterialData } from '@yamban/shared';
 import { and, asc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { escapeLikeTerm } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { materials, suppliers } from '../db/schema/index.js';
@@ -14,7 +15,7 @@ export class MaterialsService {
   async list(q: ListQuery): Promise<Paginated<MaterialRow>> {
     const conditions: SQL[] = [eq(materials.active, true)];
     if (q.search) {
-      const term = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      const term = escapeLikeTerm(q.search);
       conditions.push(
         or(
           ilike(materials.name, term),

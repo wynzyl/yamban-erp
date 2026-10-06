@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { ListCostingQuery, OrderStatus, ProductionStage } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm';
+import { escapeLikeTerm, parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -123,7 +124,7 @@ export class CostingService {
       conditions.push(lte(orders.orderDate, q.endDate));
     }
     if (q.search) {
-      const term = `%${q.search.replace(/[%_\\]/g, '\\$&')}%`;
+      const term = escapeLikeTerm(q.search);
       conditions.push(
         or(
           ilike(orders.orderNumber, term),
@@ -170,7 +171,7 @@ export class CostingService {
     const items: OrderCostSummary[] = [];
     for (const order of ordersData) {
       const costs = await this.calculateOrderCosts(order.orderId, order.electricityRate);
-      const revenue = parseFloat(order.revenue);
+      const revenue = parseDecimal(order.revenue);
       const totalCost = costs.materialCost + costs.electricityCost;
       const profit = revenue - totalCost;
       const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0;
@@ -257,12 +258,12 @@ export class CostingService {
         orderItemProcesses.powerKw,
       );
 
-    const rate = order.electricityRate ? parseFloat(order.electricityRate) : 0;
+    const rate = order.electricityRate ? parseDecimal(order.electricityRate) : 0;
 
     // Calculate electricity cost lines
     const electricityCostLines: ElectricityCostLine[] = electricityCosts.map((ec) => {
       const hours = ec.totalMinutes / 60;
-      const kwh = hours * parseFloat(ec.powerKw);
+      const kwh = hours * parseDecimal(ec.powerKw);
       const cost = kwh * rate;
       return {
         machineId: ec.machineId,
@@ -297,14 +298,14 @@ export class CostingService {
     }));
 
     // Calculate totals
-    const materialCostTotal = materialCosts.reduce((sum, m) => sum + parseFloat(m.totalCost), 0);
+    const materialCostTotal = materialCosts.reduce((sum, m) => sum + parseDecimal(m.totalCost), 0);
     const electricityCostTotal = electricityCostLines.reduce(
-      (sum, e) => sum + parseFloat(e.totalCost),
+      (sum, e) => sum + parseDecimal(e.totalCost),
       0,
     );
-    const laborCostTotal = laborCostLines.reduce((sum, l) => sum + parseFloat(l.totalCost), 0);
+    const laborCostTotal = laborCostLines.reduce((sum, l) => sum + parseDecimal(l.totalCost), 0);
     const totalCost = materialCostTotal + electricityCostTotal + laborCostTotal;
-    const revenue = parseFloat(order.revenue);
+    const revenue = parseDecimal(order.revenue);
     const profit = revenue - totalCost;
     const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0;
 
@@ -350,7 +351,7 @@ export class CostingService {
       .innerJoin(orderItems, eq(orderItems.id, orderMaterials.orderItemId))
       .where(eq(orderItems.orderId, orderId));
 
-    const materialCost = parseFloat(matResult?.total ?? '0');
+    const materialCost = parseDecimal(matResult?.total);
 
     // Electricity cost
     const processData = await this.db
@@ -363,12 +364,12 @@ export class CostingService {
       .where(eq(orderItems.orderId, orderId))
       .groupBy(orderItemProcesses.powerKw);
 
-    const rate = electricityRate ? parseFloat(electricityRate) : 0;
+    const rate = electricityRate ? parseDecimal(electricityRate) : 0;
     let electricityCost = 0;
 
     for (const p of processData) {
       const hours = p.totalMinutes / 60;
-      const kwh = hours * parseFloat(p.powerKw);
+      const kwh = hours * parseDecimal(p.powerKw);
       electricityCost += kwh * rate;
     }
 
@@ -394,7 +395,7 @@ export class CostingService {
       .innerJoin(orderItems, eq(orderItems.id, orderMaterials.orderItemId))
       .where(eq(orderItems.orderId, orderId));
 
-    const materialCost = parseFloat(matResult?.total ?? '0');
+    const materialCost = parseDecimal(matResult?.total);
 
     // Electricity cost from orderItemProcesses
     const processData = await tx
@@ -407,12 +408,12 @@ export class CostingService {
       .where(eq(orderItems.orderId, orderId))
       .groupBy(orderItemProcesses.powerKw);
 
-    const rate = electricityRate ? parseFloat(electricityRate) : 0;
+    const rate = electricityRate ? parseDecimal(electricityRate) : 0;
     let electricityCost = 0;
 
     for (const p of processData) {
       const hours = p.totalMinutes / 60;
-      const kwh = hours * parseFloat(p.powerKw);
+      const kwh = hours * parseDecimal(p.powerKw);
       electricityCost += kwh * rate;
     }
 
@@ -461,7 +462,7 @@ export class CostingService {
 
       // Create labor lines for each stage
       for (const { stage, rate } of stageList) {
-        const rateNum = parseFloat(rate);
+        const rateNum = parseDecimal(rate);
         const total = rateNum * item.quantity;
         laborCost += total;
 
@@ -539,12 +540,12 @@ export class CostingService {
         mat.category === 'FABRIC' &&
         actualFabricMap.has(mat.orderItemId)
       ) {
-        const actualQty = parseFloat(actualFabricMap.get(mat.orderItemId)!);
-        const unitCost = parseFloat(mat.unitCost);
+        const actualQty = parseDecimal(actualFabricMap.get(mat.orderItemId));
+        const unitCost = parseDecimal(mat.unitCost);
         materialCost += actualQty * unitCost;
       } else {
         // Use estimated cost
-        materialCost += parseFloat(mat.totalCost);
+        materialCost += parseDecimal(mat.totalCost);
       }
     }
 
@@ -559,12 +560,12 @@ export class CostingService {
       .where(eq(orderItems.orderId, orderId))
       .groupBy(orderItemProcesses.powerKw);
 
-    const rate = electricityRate ? parseFloat(electricityRate) : 0;
+    const rate = electricityRate ? parseDecimal(electricityRate) : 0;
     let electricityCost = 0;
 
     for (const p of processData) {
       const hours = p.totalMinutes / 60;
-      const kwh = hours * parseFloat(p.powerKw);
+      const kwh = hours * parseDecimal(p.powerKw);
       electricityCost += kwh * rate;
     }
 
@@ -577,7 +578,7 @@ export class CostingService {
       .innerJoin(orderItems, eq(orderItems.id, orderItemLabor.orderItemId))
       .where(eq(orderItems.orderId, orderId));
 
-    const laborCost = parseFloat(laborResult?.total ?? '0');
+    const laborCost = parseDecimal(laborResult?.total);
 
     return { materialCost, electricityCost, laborCost };
   }
@@ -639,15 +640,15 @@ export class CostingService {
         ),
       );
 
-    const revenue = parseFloat(result?.totalRevenue ?? '0');
-    const estMat = parseFloat(result?.estMaterialCost ?? '0');
-    const estElec = parseFloat(result?.estElectricityCost ?? '0');
-    const estLabor = parseFloat(result?.estLaborCost ?? '0');
+    const revenue = parseDecimal(result?.totalRevenue);
+    const estMat = parseDecimal(result?.estMaterialCost);
+    const estElec = parseDecimal(result?.estElectricityCost);
+    const estLabor = parseDecimal(result?.estLaborCost);
     const estTotal = estMat + estElec + estLabor;
 
-    const actMat = parseFloat(result?.actMaterialCost ?? '0');
-    const actElec = parseFloat(result?.actElectricityCost ?? '0');
-    const actLabor = parseFloat(result?.actLaborCost ?? '0');
+    const actMat = parseDecimal(result?.actMaterialCost);
+    const actElec = parseDecimal(result?.actElectricityCost);
+    const actLabor = parseDecimal(result?.actLaborCost);
     const actTotal = actMat + actElec + actLabor;
 
     const grossProfit = revenue - actTotal;
