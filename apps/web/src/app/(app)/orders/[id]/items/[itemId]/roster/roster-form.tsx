@@ -177,17 +177,11 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableSizes.length > 0
-                      ? availableSizes.map((s) => (
-                          <SelectItem key={s.size} value={s.size}>
-                            {SIZE_LABELS[s.size]}
-                          </SelectItem>
-                        ))
-                      : GARMENT_SIZES.map((size) => (
-                          <SelectItem key={size} value={size}>
-                            {SIZE_LABELS[size]}
-                          </SelectItem>
-                        ))}
+                    {GARMENT_SIZES.map((size) => (
+                      <SelectItem key={size} value={size}>
+                        {SIZE_LABELS[size]}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Button

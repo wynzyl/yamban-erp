@@ -37,6 +37,14 @@ export const orders = pgTable(
     total: money().notNull().default('0'),
     /** Rate in force when confirmed; past orders keep it (spec §29). */
     electricityRatePerKwh: unitCost(),
+    /** Estimated costs computed at confirmation. */
+    estimatedMaterialCost: money(),
+    estimatedElectricityCost: money(),
+    estimatedLaborCost: money(),
+    /** Actual costs computed when order reaches READY. */
+    actualMaterialCost: money(),
+    actualElectricityCost: money(),
+    actualLaborCost: money(),
     confirmedAt: timestamp({ withTimezone: true }),
     notes: text(),
     createdById: uuid().references(() => users.id, { onDelete: 'set null' }),
@@ -148,6 +156,25 @@ export const orderItemProcesses = pgTable(
     quantity: integer().notNull(),
   },
   (t) => [index('order_item_processes_item_idx').on(t.orderItemId)],
+);
+
+/** Labor cost snapshot per order item per stage, created at confirmation. */
+export const orderItemLabor = pgTable(
+  'order_item_labor',
+  {
+    id: id(),
+    orderItemId: uuid()
+      .notNull()
+      .references(() => orderItems.id, { onDelete: 'cascade' }),
+    stage: productionStage().notNull(),
+    quantity: integer().notNull(),
+    laborRatePerPiece: money().notNull(),
+    totalLaborCost: money().notNull(),
+  },
+  (t) => [
+    uniqueIndex('order_item_labor_uq').on(t.orderItemId, t.stage),
+    index('order_item_labor_item_idx').on(t.orderItemId),
+  ],
 );
 
 export const payments = pgTable(

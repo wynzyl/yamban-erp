@@ -24,10 +24,15 @@ interface Supplier {
   name: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
 export default async function EditMaterialPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [material, suppliersData] = await Promise.all([
+  const [material, suppliersData, categories] = await Promise.all([
     apiFetch<Material>(`/materials/${id}`).catch(() => null),
     apiFetch<Paginated<Supplier>>('/suppliers?pageSize=100').catch(() => ({
       items: [],
@@ -35,6 +40,7 @@ export default async function EditMaterialPage({ params }: { params: Promise<{ i
       pageSize: 100,
       total: 0,
     })),
+    apiFetch<Category[]>('/categories').catch(() => []),
   ]);
 
   if (!material) notFound();
@@ -42,7 +48,7 @@ export default async function EditMaterialPage({ params }: { params: Promise<{ i
   return (
     <div className="max-w-2xl">
       <h1 className="font-display text-[32px] font-semibold leading-tight">Edit material</h1>
-      <MaterialForm initialData={material} suppliers={suppliersData.items} />
+      <MaterialForm initialData={material} suppliers={suppliersData.items} categories={categories} />
     </div>
   );
 }

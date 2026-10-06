@@ -56,6 +56,12 @@ export const suppliers = pgTable('suppliers', {
   updatedAt: updatedAt(),
 });
 
+export const materialCategories = pgTable('material_categories', {
+  id: id(),
+  name: text().notNull().unique(),
+  createdAt: createdAt(),
+});
+
 export const materials = pgTable(
   'materials',
   {
@@ -110,6 +116,8 @@ export const productStages = pgTable(
       .references(() => products.id, { onDelete: 'cascade' }),
     stage: productionStage().notNull(),
     sequence: integer().notNull(),
+    /** Per piece labor cost for this product at this stage; null uses the default. */
+    laborRatePerPiece: money(),
   },
   (t) => [uniqueIndex('product_stages_uq').on(t.productId, t.stage)],
 );
@@ -120,10 +128,9 @@ export const productRecipes = pgTable(
     id: id(),
     productId: uuid()
       .notNull()
-      .references(() => products.id, { onDelete: 'cascade' }),
-    size: garmentSize().notNull(),
+      .references(() => products.id, { onDelete: 'cascade' })
+      .unique(),
   },
-  (t) => [uniqueIndex('product_recipes_uq').on(t.productId, t.size)],
 );
 
 export const recipeMaterials = pgTable(
@@ -170,3 +177,14 @@ export const electricityRates = pgTable('electricity_rates', {
   ratePerKwh: unitCost().notNull(),
   effectiveDate: date().notNull().unique(),
 });
+
+/** Fallback labor rates per stage when a product has no stage specific rate. */
+export const defaultLaborRates = pgTable(
+  'default_labor_rates',
+  {
+    id: id(),
+    stage: productionStage().notNull(),
+    ratePerPiece: money().notNull(),
+  },
+  (t) => [uniqueIndex('default_labor_rates_stage_uq').on(t.stage)],
+);

@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import { CategoriesModule } from './categories/categories.module.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { CostingModule } from './costing/costing.module.js';
 import { CustomersModule } from './customers/customers.module.js';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module.js';
     DatabaseModule,
     AuthModule,
     UsersModule,
+    CategoriesModule,
     CostingModule,
     CustomersModule,
     DesignModule,

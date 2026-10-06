@@ -5,6 +5,13 @@ import { ReadyBoard } from './ready-board';
 
 export const metadata: Metadata = { title: 'Ready for pickup' };
 
+interface DesignFileInfo {
+  id: string;
+  fileName: string;
+  storageKey: string;
+  isFinal: boolean;
+}
+
 interface ReadyOrderRow {
   id: string;
   orderNumber: string;
@@ -16,6 +23,7 @@ interface ReadyOrderRow {
   balance: string;
   dueDate: string | null;
   completedAt: string | null;
+  designFiles: DesignFileInfo[];
 }
 
 export default async function ReadyPage() {

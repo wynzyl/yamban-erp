@@ -15,3 +15,5 @@ export * from './schemas/machine.js';
 export * from './schemas/settings.js';
 export * from './schemas/costing.js';
 export * from './schemas/product-process.js';
+export * from './schemas/recipe.js';
+export * from './schemas/category.js';

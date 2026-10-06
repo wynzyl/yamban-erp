@@ -39,6 +39,13 @@ interface ElectricityCostLine {
   totalCost: string;
 }
 
+interface LaborCostLine {
+  stage: ProductionStage;
+  quantity: number;
+  ratePerPiece: string;
+  totalCost: string;
+}
+
 interface OrderCostDetail {
   orderId: string;
   orderNumber: string;
@@ -50,6 +57,8 @@ interface OrderCostDetail {
   materialCostTotal: string;
   electricityCosts: ElectricityCostLine[];
   electricityCostTotal: string;
+  laborCosts: LaborCostLine[];
+  laborCostTotal: string;
   totalCost: string;
   profit: string;
   marginPercent: string;
@@ -103,7 +112,7 @@ export default async function OrderCostPage({ params }: { params: Promise<{ orde
       </div>
 
       {/* Summary */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-4">
+      <div className="mt-6 grid gap-4 sm:grid-cols-5">
         <Surface className="p-4">
           <p className="text-sm text-muted-foreground">Revenue</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums">{formatMoney(data.revenue)}</p>
@@ -118,6 +127,12 @@ export default async function OrderCostPage({ params }: { params: Promise<{ orde
           <p className="text-sm text-muted-foreground">Electricity cost</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-muted-foreground">
             {formatMoney(data.electricityCostTotal)}
+          </p>
+        </Surface>
+        <Surface className="p-4">
+          <p className="text-sm text-muted-foreground">Labor cost</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-muted-foreground">
+            {formatMoney(data.laborCostTotal)}
           </p>
         </Surface>
         <Surface className="p-4">
@@ -236,6 +251,53 @@ export default async function OrderCostPage({ params }: { params: Promise<{ orde
                 </TableCell>
                 <TableCell className="text-right tabular-nums font-semibold">
                   {formatMoney(data.electricityCostTotal)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )}
+      </Surface>
+
+      {/* Labor costs */}
+      <Surface className="mt-6 overflow-hidden">
+        <div className="border-b bg-muted/50 px-4 py-3">
+          <h2 className="font-medium">Labor costs</h2>
+        </div>
+        {data.laborCosts.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">
+            No labor costs recorded. Configure product labor rates to track labor costs.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Stage</TableHead>
+                <TableHead className="text-right">Quantity</TableHead>
+                <TableHead className="text-right">Rate per piece</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.laborCosts.map((l, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <Badge variant="outline">{PRODUCTION_STAGE_LABELS[l.stage]}</Badge>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{l.quantity} pcs</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {formatMoney(l.ratePerPiece)}/pc
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums font-medium">
+                    {formatMoney(l.totalCost)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="bg-muted/30">
+                <TableCell colSpan={3} className="text-right font-medium">
+                  Total labor
+                </TableCell>
+                <TableCell className="text-right tabular-nums font-semibold">
+                  {formatMoney(data.laborCostTotal)}
                 </TableCell>
               </TableRow>
             </TableBody>

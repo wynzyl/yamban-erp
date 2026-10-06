@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { JobStatus, ProductionStage, StartJobData } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, eq, sql } from 'drizzle-orm';
+import { CostingService } from '../costing/costing.service.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -69,12 +70,14 @@ export interface ReadyOrderRow {
   balance: string;
   dueDate: string | null;
   completedAt: string | null;
+  designFiles: DesignFileInfo[];
 }
 
 @Injectable()
 export class ProductionService {
   constructor(
     @InjectDb() private readonly db: Database,
+    private readonly costingService: CostingService,
     private readonly inventoryService: InventoryService,
   ) {}
 
@@ -443,17 +446,39 @@ export class ProductionService {
           ),
         );
 
-      // If all packaging jobs are completed, update order status to READY
+      // If all packaging jobs are completed, update order status to READY and compute actual costs
       if (totalCount?.count === completedCount?.count) {
-        await this.db
-          .update(orders)
-          .set({ status: 'READY' })
-          .where(
-            and(
-              eq(orders.id, job.orderId),
-              eq(orders.status, 'IN_PRODUCTION'),
-            ),
+        await this.db.transaction(async (tx) => {
+          // Get the electricity rate from the order
+          const [orderData] = await tx
+            .select({ electricityRatePerKwh: orders.electricityRatePerKwh })
+            .from(orders)
+            .where(eq(orders.id, job.orderId))
+            .limit(1);
+
+          // Compute actual costs
+          const costs = await this.costingService.computeActualCosts(
+            job.orderId,
+            orderData?.electricityRatePerKwh ?? null,
+            tx,
           );
+
+          // Update order with status and actual costs
+          await tx
+            .update(orders)
+            .set({
+              status: 'READY',
+              actualMaterialCost: costs.materialCost.toFixed(2),
+              actualElectricityCost: costs.electricityCost.toFixed(2),
+              actualLaborCost: costs.laborCost.toFixed(2),
+            })
+            .where(
+              and(
+                eq(orders.id, job.orderId),
+                eq(orders.status, 'IN_PRODUCTION'),
+              ),
+            );
+        });
       }
     }
 
@@ -523,6 +548,24 @@ export class ProductionService {
         .from(payments)
         .where(eq(payments.orderId, row.id));
 
+      // Get design files for this order (final designs from all order items)
+      const designFilesData = await this.db
+        .select({
+          id: designFiles.id,
+          fileName: designFiles.fileName,
+          storageKey: designFiles.storageKey,
+          isFinal: designFiles.isFinal,
+        })
+        .from(designFiles)
+        .innerJoin(designJobs, eq(designJobs.id, designFiles.designJobId))
+        .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
+        .where(
+          and(
+            eq(productionJobs.orderId, row.id),
+            eq(designFiles.isFinal, true),
+          ),
+        );
+
       const totalNum = parseFloat(row.total);
       const paidNum = parseFloat(paidResult?.paid ?? '0');
       const balanceNum = totalNum - paidNum;
@@ -542,6 +585,12 @@ export class ProductionService {
         balance: balanceNum.toFixed(2),
         dueDate: row.dueDate,
         completedAt: completionResult?.completedAt ?? null,
+        designFiles: designFilesData.map((f) => ({
+          id: f.id,
+          fileName: f.fileName,
+          storageKey: f.storageKey,
+          isFinal: f.isFinal,
+        })),
       });
     }
 

@@ -1,17 +1,36 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { ListCostingQuery, OrderStatus } from '@yamban/shared';
+import type { ListCostingQuery, OrderStatus, ProductionStage } from '@yamban/shared';
+import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
   customers,
+  defaultLaborRates,
+  orderItemLabor,
   orderItemProcesses,
   orderItems,
   orderMaterials,
   orders,
   materials,
   machines,
+  productionJobs,
+  productStages,
 } from '../db/schema/index.js';
+
+export interface ComputedCosts {
+  materialCost: number;
+  electricityCost: number;
+  laborCost: number;
+}
+
+export interface LaborLineInput {
+  orderItemId: string;
+  stage: ProductionStage;
+  quantity: number;
+  laborRatePerPiece: string;
+  totalLaborCost: string;
+}
 
 export interface OrderCostSummary {
   orderId: string;
@@ -48,6 +67,13 @@ export interface ElectricityCostLine {
   totalCost: string;
 }
 
+export interface LaborCostLine {
+  stage: string;
+  quantity: number;
+  ratePerPiece: string;
+  totalCost: string;
+}
+
 export interface OrderCostDetail {
   orderId: string;
   orderNumber: string;
@@ -60,6 +86,8 @@ export interface OrderCostDetail {
   materialCostTotal: string;
   electricityCosts: ElectricityCostLine[];
   electricityCostTotal: string;
+  laborCosts: LaborCostLine[];
+  laborCostTotal: string;
   totalCost: string;
   profit: string;
   marginPercent: string;
@@ -248,13 +276,34 @@ export class CostingService {
       };
     });
 
+    // Get labor costs grouped by stage
+    const laborCostsRaw = await this.db
+      .select({
+        stage: orderItemLabor.stage,
+        quantity: sql<number>`SUM(${orderItemLabor.quantity})::int`,
+        ratePerPiece: orderItemLabor.laborRatePerPiece,
+        totalCost: sql<string>`SUM(${orderItemLabor.totalLaborCost})`,
+      })
+      .from(orderItemLabor)
+      .innerJoin(orderItems, eq(orderItems.id, orderItemLabor.orderItemId))
+      .where(eq(orderItems.orderId, orderId))
+      .groupBy(orderItemLabor.stage, orderItemLabor.laborRatePerPiece);
+
+    const laborCostLines: LaborCostLine[] = laborCostsRaw.map((lc) => ({
+      stage: lc.stage,
+      quantity: lc.quantity,
+      ratePerPiece: lc.ratePerPiece,
+      totalCost: lc.totalCost,
+    }));
+
     // Calculate totals
     const materialCostTotal = materialCosts.reduce((sum, m) => sum + parseFloat(m.totalCost), 0);
     const electricityCostTotal = electricityCostLines.reduce(
       (sum, e) => sum + parseFloat(e.totalCost),
       0,
     );
-    const totalCost = materialCostTotal + electricityCostTotal;
+    const laborCostTotal = laborCostLines.reduce((sum, l) => sum + parseFloat(l.totalCost), 0);
+    const totalCost = materialCostTotal + electricityCostTotal + laborCostTotal;
     const revenue = parseFloat(order.revenue);
     const profit = revenue - totalCost;
     const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0;
@@ -279,6 +328,8 @@ export class CostingService {
       materialCostTotal: materialCostTotal.toFixed(2),
       electricityCosts: electricityCostLines,
       electricityCostTotal: electricityCostTotal.toFixed(2),
+      laborCosts: laborCostLines,
+      laborCostTotal: laborCostTotal.toFixed(2),
       totalCost: totalCost.toFixed(2),
       profit: profit.toFixed(2),
       marginPercent: marginPercent.toFixed(1),
@@ -322,5 +373,310 @@ export class CostingService {
     }
 
     return { materialCost, electricityCost };
+  }
+
+  /**
+   * Compute estimated costs at order confirmation.
+   * Creates orderItemLabor rows and returns totals for material, electricity, and labor.
+   * Called within a transaction; caller should update orders table with returned values.
+   */
+  async computeEstimatedCosts(
+    orderId: string,
+    electricityRate: string | null,
+    tx: Database,
+  ): Promise<{ costs: ComputedCosts; laborLines: LaborLineInput[] }> {
+    // Material cost from orderMaterials (already snapshotted)
+    const [matResult] = await tx
+      .select({
+        total: sql<string>`COALESCE(SUM(${orderMaterials.totalCost}), '0')`,
+      })
+      .from(orderMaterials)
+      .innerJoin(orderItems, eq(orderItems.id, orderMaterials.orderItemId))
+      .where(eq(orderItems.orderId, orderId));
+
+    const materialCost = parseFloat(matResult?.total ?? '0');
+
+    // Electricity cost from orderItemProcesses
+    const processData = await tx
+      .select({
+        powerKw: orderItemProcesses.powerKw,
+        totalMinutes: sql<number>`SUM(${orderItemProcesses.minutesPerPiece}::numeric * ${orderItemProcesses.quantity})::float`,
+      })
+      .from(orderItemProcesses)
+      .innerJoin(orderItems, eq(orderItems.id, orderItemProcesses.orderItemId))
+      .where(eq(orderItems.orderId, orderId))
+      .groupBy(orderItemProcesses.powerKw);
+
+    const rate = electricityRate ? parseFloat(electricityRate) : 0;
+    let electricityCost = 0;
+
+    for (const p of processData) {
+      const hours = p.totalMinutes / 60;
+      const kwh = hours * parseFloat(p.powerKw);
+      electricityCost += kwh * rate;
+    }
+
+    // Labor cost: for each order item, for each stage that product has
+    // Get default labor rates as fallback
+    const defaultRates = await tx.select().from(defaultLaborRates);
+    const defaultRateMap = new Map(defaultRates.map((r) => [r.stage, r.ratePerPiece]));
+
+    // Get order items with their products
+    const items = await tx
+      .select({
+        orderItemId: orderItems.id,
+        productId: orderItems.productId,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+
+    const laborLines: LaborLineInput[] = [];
+    let laborCost = 0;
+
+    for (const item of items) {
+      // Get product stages with their labor rates
+      const stages = await tx
+        .select({
+          stage: productStages.stage,
+          laborRatePerPiece: productStages.laborRatePerPiece,
+        })
+        .from(productStages)
+        .where(eq(productStages.productId, item.productId));
+
+      // If product has no stages defined, use all production stages
+      const stageList: { stage: ProductionStage; rate: string }[] = [];
+      if (stages.length > 0) {
+        for (const s of stages) {
+          const rate = s.laborRatePerPiece ?? defaultRateMap.get(s.stage) ?? '0';
+          stageList.push({ stage: s.stage, rate });
+        }
+      } else {
+        // No stages defined; use all stages with default rates
+        for (const stage of PRODUCTION_STAGES) {
+          const rate = defaultRateMap.get(stage) ?? '0';
+          stageList.push({ stage, rate });
+        }
+      }
+
+      // Create labor lines for each stage
+      for (const { stage, rate } of stageList) {
+        const rateNum = parseFloat(rate);
+        const total = rateNum * item.quantity;
+        laborCost += total;
+
+        laborLines.push({
+          orderItemId: item.orderItemId,
+          stage,
+          quantity: item.quantity,
+          laborRatePerPiece: rate,
+          totalLaborCost: total.toFixed(2),
+        });
+      }
+    }
+
+    return {
+      costs: { materialCost, electricityCost, laborCost },
+      laborLines,
+    };
+  }
+
+  /**
+   * Compute actual costs when order reaches READY status.
+   * Uses actualFabricUsed from HEAT_PRESS job when recorded, else falls back to estimate.
+   * Electricity and labor actual equal estimated (no actual time tracking yet).
+   */
+  async computeActualCosts(
+    orderId: string,
+    electricityRate: string | null,
+    tx: Database,
+  ): Promise<ComputedCosts> {
+    // Get HEAT_PRESS jobs with actual fabric used
+    const heatPressJobs = await tx
+      .select({
+        orderItemId: productionJobs.orderItemId,
+        actualFabricUsed: productionJobs.actualFabricUsed,
+      })
+      .from(productionJobs)
+      .where(
+        and(
+          eq(productionJobs.orderId, orderId),
+          eq(productionJobs.stage, 'HEAT_PRESS'),
+        ),
+      );
+
+    // Map orderItemId to actual fabric used (if recorded)
+    const actualFabricMap = new Map<string, string | null>();
+    for (const job of heatPressJobs) {
+      if (job.actualFabricUsed) {
+        actualFabricMap.set(job.orderItemId, job.actualFabricUsed);
+      }
+    }
+
+    // Material cost: for fabric materials at HEAT_PRESS stage, use actualFabricUsed if available
+    let materialCost = 0;
+
+    // Get all order materials grouped by orderItemId, stage, and material
+    const matLines = await tx
+      .select({
+        orderItemId: orderMaterials.orderItemId,
+        materialId: orderMaterials.materialId,
+        stage: orderMaterials.stage,
+        totalQuantity: orderMaterials.totalQuantity,
+        unitCost: orderMaterials.unitCost,
+        totalCost: orderMaterials.totalCost,
+        category: materials.category,
+      })
+      .from(orderMaterials)
+      .innerJoin(orderItems, eq(orderItems.id, orderMaterials.orderItemId))
+      .innerJoin(materials, eq(materials.id, orderMaterials.materialId))
+      .where(eq(orderItems.orderId, orderId));
+
+    for (const mat of matLines) {
+      // Check if this is a fabric at HEAT_PRESS with actual usage recorded
+      if (
+        mat.stage === 'HEAT_PRESS' &&
+        mat.category === 'FABRIC' &&
+        actualFabricMap.has(mat.orderItemId)
+      ) {
+        const actualQty = parseFloat(actualFabricMap.get(mat.orderItemId)!);
+        const unitCost = parseFloat(mat.unitCost);
+        materialCost += actualQty * unitCost;
+      } else {
+        // Use estimated cost
+        materialCost += parseFloat(mat.totalCost);
+      }
+    }
+
+    // Electricity cost: same as estimated (no actual machine time tracking)
+    const processData = await tx
+      .select({
+        powerKw: orderItemProcesses.powerKw,
+        totalMinutes: sql<number>`SUM(${orderItemProcesses.minutesPerPiece}::numeric * ${orderItemProcesses.quantity})::float`,
+      })
+      .from(orderItemProcesses)
+      .innerJoin(orderItems, eq(orderItems.id, orderItemProcesses.orderItemId))
+      .where(eq(orderItems.orderId, orderId))
+      .groupBy(orderItemProcesses.powerKw);
+
+    const rate = electricityRate ? parseFloat(electricityRate) : 0;
+    let electricityCost = 0;
+
+    for (const p of processData) {
+      const hours = p.totalMinutes / 60;
+      const kwh = hours * parseFloat(p.powerKw);
+      electricityCost += kwh * rate;
+    }
+
+    // Labor cost: same as estimated (sum from orderItemLabor)
+    const [laborResult] = await tx
+      .select({
+        total: sql<string>`COALESCE(SUM(${orderItemLabor.totalLaborCost}), '0')`,
+      })
+      .from(orderItemLabor)
+      .innerJoin(orderItems, eq(orderItems.id, orderItemLabor.orderItemId))
+      .where(eq(orderItems.orderId, orderId));
+
+    const laborCost = parseFloat(laborResult?.total ?? '0');
+
+    return { materialCost, electricityCost, laborCost };
+  }
+
+  /**
+   * Get monthly production cost report aggregating estimated vs actual costs
+   * for orders confirmed in the given month.
+   */
+  async getProductionCostReport(month: string): Promise<{
+    month: string;
+    orderCount: number;
+    totalRevenue: string;
+    estimated: {
+      materialCost: string;
+      electricityCost: string;
+      laborCost: string;
+      total: string;
+    };
+    actual: {
+      materialCost: string;
+      electricityCost: string;
+      laborCost: string;
+      total: string;
+    };
+    variance: {
+      materialCost: string;
+      electricityCost: string;
+      laborCost: string;
+      total: string;
+    };
+    grossProfit: string;
+    grossMarginPercent: string;
+  }> {
+    // Parse the month to get date range
+    const startDate = `${month}-01`;
+    const [year, monthNum] = month.split('-').map(Number);
+    const nextMonth = monthNum === 12 ? 1 : monthNum! + 1;
+    const nextYear = monthNum === 12 ? year! + 1 : year!;
+    const endDate = `${nextYear}-${nextMonth.toString().padStart(2, '0')}-01`;
+
+    // Get aggregated data for orders confirmed in this month
+    const [result] = await this.db
+      .select({
+        orderCount: sql<number>`count(*)::int`,
+        totalRevenue: sql<string>`COALESCE(SUM(${orders.total}), '0')`,
+        estMaterialCost: sql<string>`COALESCE(SUM(${orders.estimatedMaterialCost}), '0')`,
+        estElectricityCost: sql<string>`COALESCE(SUM(${orders.estimatedElectricityCost}), '0')`,
+        estLaborCost: sql<string>`COALESCE(SUM(${orders.estimatedLaborCost}), '0')`,
+        actMaterialCost: sql<string>`COALESCE(SUM(${orders.actualMaterialCost}), '0')`,
+        actElectricityCost: sql<string>`COALESCE(SUM(${orders.actualElectricityCost}), '0')`,
+        actLaborCost: sql<string>`COALESCE(SUM(${orders.actualLaborCost}), '0')`,
+      })
+      .from(orders)
+      .where(
+        and(
+          gte(orders.confirmedAt, new Date(startDate)),
+          lte(orders.confirmedAt, new Date(endDate)),
+          sql`${orders.status} != 'CANCELLED'`,
+        ),
+      );
+
+    const revenue = parseFloat(result?.totalRevenue ?? '0');
+    const estMat = parseFloat(result?.estMaterialCost ?? '0');
+    const estElec = parseFloat(result?.estElectricityCost ?? '0');
+    const estLabor = parseFloat(result?.estLaborCost ?? '0');
+    const estTotal = estMat + estElec + estLabor;
+
+    const actMat = parseFloat(result?.actMaterialCost ?? '0');
+    const actElec = parseFloat(result?.actElectricityCost ?? '0');
+    const actLabor = parseFloat(result?.actLaborCost ?? '0');
+    const actTotal = actMat + actElec + actLabor;
+
+    const grossProfit = revenue - actTotal;
+    const grossMarginPercent = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+    return {
+      month,
+      orderCount: result?.orderCount ?? 0,
+      totalRevenue: revenue.toFixed(2),
+      estimated: {
+        materialCost: estMat.toFixed(2),
+        electricityCost: estElec.toFixed(2),
+        laborCost: estLabor.toFixed(2),
+        total: estTotal.toFixed(2),
+      },
+      actual: {
+        materialCost: actMat.toFixed(2),
+        electricityCost: actElec.toFixed(2),
+        laborCost: actLabor.toFixed(2),
+        total: actTotal.toFixed(2),
+      },
+      variance: {
+        materialCost: (actMat - estMat).toFixed(2),
+        electricityCost: (actElec - estElec).toFixed(2),
+        laborCost: (actLabor - estLabor).toFixed(2),
+        total: (actTotal - estTotal).toFixed(2),
+      },
+      grossProfit: grossProfit.toFixed(2),
+      grossMarginPercent: grossMarginPercent.toFixed(1),
+    };
   }
 }

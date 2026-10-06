@@ -10,19 +10,27 @@ interface Supplier {
   name: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
 export default async function NewMaterialPage() {
-  // Fetch all suppliers for the dropdown
-  const suppliersData = await apiFetch<Paginated<Supplier>>('/suppliers?pageSize=100').catch(() => ({
-    items: [],
-    page: 1,
-    pageSize: 100,
-    total: 0,
-  }));
+  // Fetch suppliers and categories for the dropdowns
+  const [suppliersData, categories] = await Promise.all([
+    apiFetch<Paginated<Supplier>>('/suppliers?pageSize=100').catch(() => ({
+      items: [],
+      page: 1,
+      pageSize: 100,
+      total: 0,
+    })),
+    apiFetch<Category[]>('/categories').catch(() => []),
+  ]);
 
   return (
     <div className="max-w-2xl">
       <h1 className="font-display text-[32px] font-semibold leading-tight">Add material</h1>
-      <MaterialForm suppliers={suppliersData.items} />
+      <MaterialForm suppliers={suppliersData.items} categories={categories} />
     </div>
   );
 }

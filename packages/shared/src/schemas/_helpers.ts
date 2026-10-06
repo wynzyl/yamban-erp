@@ -38,3 +38,16 @@ export const positiveMoney = z
  * Positive integer for quantities.
  */
 export const positiveInt = z.coerce.number().int().min(1, 'Quantity must be at least 1.');
+
+/**
+ * Optional money string (up to 14,2 precision).
+ * Accepts null, undefined, empty string → outputs null.
+ */
+export const optionalMoney = z.preprocess(
+  (v) => (v === null || v === '' || v === undefined ? undefined : v),
+  z
+    .string()
+    .regex(/^\d{1,12}(\.\d{1,2})?$/, 'Enter a valid amount.')
+    .refine((v) => parseFloat(v) >= 0, 'Amount cannot be negative.')
+    .optional(),
+).transform((v) => v || null);

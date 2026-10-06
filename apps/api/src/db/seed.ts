@@ -8,7 +8,7 @@ import { hash } from '@node-rs/argon2';
 import { sql } from 'drizzle-orm';
 import { env } from '../config/env.js';
 import { createDb, createPool } from './client.js';
-import { customers, electricityRates, machines, organizations, products, productSizes, users } from './schema/index.js';
+import { customers, defaultLaborRates, electricityRates, machines, organizations, products, productSizes, users } from './schema/index.js';
 
 const pool = createPool(env.DATABASE_URL);
 const db = createDb(pool);
@@ -45,6 +45,20 @@ async function main(): Promise<void> {
       .values({ ratePerKwh: '12.0000', effectiveDate: '2026-01-01' })
       .onConflictDoNothing();
     console.log('Seeded machines and an example electricity rate (₱12.00/kWh).');
+  }
+
+  // Seed default labor rates for each production stage
+  const laborRateCount = await db.$count(defaultLaborRates);
+  if (laborRateCount === 0) {
+    // Example per piece rates; adjust to shop's actual costs
+    await db.insert(defaultLaborRates).values([
+      { stage: 'DESIGN', ratePerPiece: '5.00' },
+      { stage: 'PRINTING', ratePerPiece: '10.00' },
+      { stage: 'HEAT_PRESS', ratePerPiece: '8.00' },
+      { stage: 'SEWING', ratePerPiece: '25.00' },
+      { stage: 'PACKAGING', ratePerPiece: '3.00' },
+    ]);
+    console.log('Seeded default labor rates for all production stages.');
   }
 
   // Seed sample organizations

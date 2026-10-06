@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import type { UserRole } from '@yamban/shared';
 import {
   addOrderItemSchema,
   createOrderSchema,
@@ -23,13 +24,14 @@ export class OrdersController {
   list(
     @Query(new ZodValidationPipe(listQuerySchema.extend({ status: listQuerySchema.shape.search })))
     query: { page: number; pageSize: number; search?: string; status?: string },
+    @CurrentUser('role') role: UserRole,
   ) {
-    return this.orders.list(query);
+    return this.orders.list(query, role);
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.orders.get(id);
+  get(@Param('id') id: string, @CurrentUser('role') role: UserRole) {
+    return this.orders.get(id, role);
   }
 
   @Get(':id/editable')

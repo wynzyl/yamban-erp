@@ -3,8 +3,6 @@
 import {
   createMaterialSchema,
   updateMaterialSchema,
-  MATERIAL_CATEGORIES,
-  MATERIAL_CATEGORY_LABELS,
   STOCK_UNITS,
   UNIT_SUFFIX,
   type StockUnit,
@@ -20,6 +18,11 @@ import { NativeSelect } from '@/components/ui/select';
 type FieldErrors = Record<string, string[] | undefined>;
 
 interface Supplier {
+  id: string;
+  name: string;
+}
+
+interface Category {
   id: string;
   name: string;
 }
@@ -40,9 +43,10 @@ interface MaterialData {
 interface MaterialFormProps {
   initialData?: MaterialData;
   suppliers: Supplier[];
+  categories: Category[];
 }
 
-export function MaterialForm({ initialData, suppliers }: MaterialFormProps) {
+export function MaterialForm({ initialData, suppliers, categories }: MaterialFormProps) {
   const router = useRouter();
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string>();
@@ -137,9 +141,9 @@ export function MaterialForm({ initialData, suppliers }: MaterialFormProps) {
           aria-describedby={errors.category ? 'category-error' : undefined}
         >
           <option value="">Select category</option>
-          {MATERIAL_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {MATERIAL_CATEGORY_LABELS[cat]}
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.name}>
+              {cat.name}
             </option>
           ))}
         </NativeSelect>

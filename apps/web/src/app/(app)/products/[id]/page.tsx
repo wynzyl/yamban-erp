@@ -2,6 +2,7 @@ import {
   formatDate,
   type ProductionStage,
   PRODUCTION_STAGE_LABELS,
+  type StockUnit,
 } from '@yamban/shared';
 import { ArrowLeft, Edit } from 'lucide-react';
 import type { Metadata } from 'next';
@@ -17,6 +18,8 @@ import { apiFetch } from '@/lib/api';
 import { AddProcessForm } from './add-process-form';
 import { DeleteProcessButton } from './delete-process-button';
 import { DeleteProductButton } from './delete-button';
+import { LaborRatesSection } from './labor-rates-section';
+import { RecipeSection } from './recipe-section';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -44,6 +47,36 @@ interface Machine {
   powerKw: string;
 }
 
+interface ProductStage {
+  id: string;
+  stage: ProductionStage;
+  sequence: number;
+  laborRatePerPiece: string | null;
+}
+
+interface DefaultLaborRate {
+  id: string;
+  stage: ProductionStage;
+  ratePerPiece: string;
+}
+
+interface RecipeMaterial {
+  id: string;
+  materialId: string;
+  materialName: string;
+  materialColor: string | null;
+  materialUnit: StockUnit;
+  quantityPerPiece: string;
+  stage: ProductionStage;
+}
+
+interface Material {
+  id: string;
+  name: string;
+  color: string | null;
+  unit: StockUnit;
+}
+
 interface ProductDetail {
   id: string;
   name: string;
@@ -53,6 +86,8 @@ interface ProductDetail {
   createdAt: string;
   updatedAt: string;
   processes: ProductProcess[];
+  stages: ProductStage[];
+  recipe: RecipeMaterial[];
 }
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,12 +95,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   let product: ProductDetail;
   let machines: Machine[];
+  let defaultLaborRates: DefaultLaborRate[];
+  let allMaterials: Material[];
   try {
-    [product, machines] = await Promise.all([
-      apiFetch<ProductDetail>(`/products/${id}`),
+    // Fetch product first to fail fast if it doesn't exist
+    product = await apiFetch<ProductDetail>(`/products/${id}`);
+
+    // Then fetch supporting data
+    [machines, defaultLaborRates, allMaterials] = await Promise.all([
       apiFetch<Machine[]>('/machines'),
+      apiFetch<DefaultLaborRate[]>('/settings/labor-rates/defaults'),
+      apiFetch<{ items: Material[] }>('/materials?pageSize=100').then((r) => r.items),
     ]);
-  } catch {
+  } catch (error) {
+    console.error('Product page error:', error);
     notFound();
   }
 
@@ -179,6 +222,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           </Table>
         )}
       </Surface>
+
+      {/* Recipe */}
+      <RecipeSection
+        productId={product.id}
+        recipe={product.recipe}
+        materials={allMaterials}
+      />
+
+      {/* Labor Rates */}
+      <LaborRatesSection
+        productId={product.id}
+        stages={product.stages}
+        defaultRates={defaultLaborRates}
+      />
     </div>
   );
 }

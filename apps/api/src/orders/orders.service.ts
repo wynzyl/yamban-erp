@@ -11,9 +11,11 @@ import type {
   UpdateOrderData,
   UpdateOrderNotesData,
   UpdateRosterData,
+  UserRole,
 } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
+import { CostingService } from '../costing/costing.service.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -22,6 +24,7 @@ import {
   electricityRates,
   machines,
   materials,
+  orderItemLabor,
   orderItemProcesses,
   orderItems,
   orderItemSizes,
@@ -50,6 +53,8 @@ export interface OrderListRow {
   total: string;
   paidAmount: string;
   itemCount: number;
+  // Cost fields for Owner only
+  totalProductionCost?: string;
 }
 
 export interface OrderDetailRow {
@@ -74,11 +79,35 @@ export interface OrderDetailRow {
   updatedAt: Date;
 }
 
+export interface OrderCostBreakdown {
+  estimated: {
+    materialCost: string;
+    electricityCost: string;
+    laborCost: string;
+    total: string;
+  };
+  actual: {
+    materialCost: string | null;
+    electricityCost: string | null;
+    laborCost: string | null;
+    total: string | null;
+  } | null;
+  variance: {
+    materialCost: string | null;
+    electricityCost: string | null;
+    laborCost: string | null;
+    total: string | null;
+  } | null;
+}
+
 @Injectable()
 export class OrdersService {
-  constructor(@InjectDb() private readonly db: Database) {}
+  constructor(
+    @InjectDb() private readonly db: Database,
+    private readonly costingService: CostingService,
+  ) {}
 
-  async list(q: ListQuery & { status?: string }): Promise<Paginated<OrderListRow>> {
+  async list(q: ListQuery & { status?: string }, role?: UserRole): Promise<Paginated<OrderListRow>> {
     const conditions: SQL[] = [];
 
     if (q.search) {
@@ -98,6 +127,7 @@ export class OrdersService {
     }
 
     const where = conditions.length ? and(...conditions) : undefined;
+    const isOwner = role === 'OWNER';
 
     // Subquery for paid amount
     const paidSubquery = this.db
@@ -134,6 +164,10 @@ export class OrdersService {
           total: orders.total,
           paidAmount: sql<string>`coalesce(${paidSubquery.total}, '0')`,
           itemCount: sql<number>`coalesce(${itemCountSubquery.count}, 0)`,
+          // Cost fields for Owner
+          estimatedMaterialCost: orders.estimatedMaterialCost,
+          estimatedElectricityCost: orders.estimatedElectricityCost,
+          estimatedLaborCost: orders.estimatedLaborCost,
         })
         .from(orders)
         .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -155,10 +189,40 @@ export class OrdersService {
       ),
     ]);
 
-    return { items: rows, page: q.page, pageSize: q.pageSize, total };
+    // Transform rows, adding cost data for Owner only
+    const items: OrderListRow[] = rows.map((row) => {
+      const base: OrderListRow = {
+        id: row.id,
+        orderNumber: row.orderNumber,
+        customerId: row.customerId,
+        customerFirstName: row.customerFirstName,
+        customerLastName: row.customerLastName,
+        organizationName: row.organizationName,
+        orderDate: row.orderDate,
+        dueDate: row.dueDate,
+        status: row.status,
+        total: row.total,
+        paidAmount: row.paidAmount,
+        itemCount: row.itemCount,
+      };
+
+      // Add cost data for Owner
+      if (isOwner && row.estimatedMaterialCost != null) {
+        const matCost = parseFloat(row.estimatedMaterialCost ?? '0');
+        const elecCost = parseFloat(row.estimatedElectricityCost ?? '0');
+        const laborCost = parseFloat(row.estimatedLaborCost ?? '0');
+        base.totalProductionCost = (matCost + elecCost + laborCost).toFixed(2);
+      }
+
+      return base;
+    });
+
+    return { items, page: q.page, pageSize: q.pageSize, total };
   }
 
-  async get(id: string): Promise<OrderDetailRow & { items: OrderItemDetail[]; payments: PaymentRow[]; productionJobs: ProductionJobRow[] }> {
+  async get(id: string, role?: UserRole): Promise<OrderDetailRow & { items: OrderItemDetail[]; payments: PaymentRow[]; productionJobs: ProductionJobRow[]; costBreakdown?: OrderCostBreakdown }> {
+    const isOwner = role === 'OWNER';
+
     const [order] = await this.db
       .select({
         id: orders.id,
@@ -180,6 +244,13 @@ export class OrdersService {
         confirmedAt: orders.confirmedAt,
         createdAt: orders.createdAt,
         updatedAt: orders.updatedAt,
+        // Cost columns
+        estimatedMaterialCost: orders.estimatedMaterialCost,
+        estimatedElectricityCost: orders.estimatedElectricityCost,
+        estimatedLaborCost: orders.estimatedLaborCost,
+        actualMaterialCost: orders.actualMaterialCost,
+        actualElectricityCost: orders.actualElectricityCost,
+        actualLaborCost: orders.actualLaborCost,
       })
       .from(orders)
       .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -280,7 +351,79 @@ export class OrdersService {
       prodJobs.push(...jobsRaw);
     }
 
-    return { ...order, items, payments: paymentsRaw, productionJobs: prodJobs };
+    // Build the base response
+    const baseOrder: OrderDetailRow = {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerId: order.customerId,
+      customerFirstName: order.customerFirstName,
+      customerLastName: order.customerLastName,
+      customerMobile: order.customerMobile,
+      organizationId: order.organizationId,
+      organizationName: order.organizationName,
+      orderDate: order.orderDate,
+      dueDate: order.dueDate,
+      status: order.status,
+      materialStatus: order.materialStatus,
+      subtotal: order.subtotal,
+      discount: order.discount,
+      total: order.total,
+      notes: order.notes,
+      confirmedAt: order.confirmedAt,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+    };
+
+    // Build cost breakdown for Owner
+    let costBreakdown: OrderCostBreakdown | undefined;
+    if (isOwner && order.estimatedMaterialCost != null) {
+      const estMat = parseFloat(order.estimatedMaterialCost ?? '0');
+      const estElec = parseFloat(order.estimatedElectricityCost ?? '0');
+      const estLabor = parseFloat(order.estimatedLaborCost ?? '0');
+      const estTotal = estMat + estElec + estLabor;
+
+      costBreakdown = {
+        estimated: {
+          materialCost: order.estimatedMaterialCost ?? '0.00',
+          electricityCost: order.estimatedElectricityCost ?? '0.00',
+          laborCost: order.estimatedLaborCost ?? '0.00',
+          total: estTotal.toFixed(2),
+        },
+        actual: null,
+        variance: null,
+      };
+
+      // Add actual costs if available (order is READY or later)
+      if (order.actualMaterialCost != null) {
+        const actMat = parseFloat(order.actualMaterialCost ?? '0');
+        const actElec = parseFloat(order.actualElectricityCost ?? '0');
+        const actLabor = parseFloat(order.actualLaborCost ?? '0');
+        const actTotal = actMat + actElec + actLabor;
+
+        costBreakdown.actual = {
+          materialCost: order.actualMaterialCost,
+          electricityCost: order.actualElectricityCost,
+          laborCost: order.actualLaborCost,
+          total: actTotal.toFixed(2),
+        };
+
+        // Calculate variance (actual - estimated)
+        costBreakdown.variance = {
+          materialCost: (actMat - estMat).toFixed(2),
+          electricityCost: (actElec - estElec).toFixed(2),
+          laborCost: (actLabor - estLabor).toFixed(2),
+          total: (actTotal - estTotal).toFixed(2),
+        };
+      }
+    }
+
+    return {
+      ...baseOrder,
+      items,
+      payments: paymentsRaw,
+      productionJobs: prodJobs,
+      ...(costBreakdown && { costBreakdown }),
+    };
   }
 
   async create(data: CreateOrderData, userId: string) {
@@ -433,7 +576,7 @@ export class OrdersService {
           updates.electricityRatePerKwh = currentRate.ratePerKwh;
         }
 
-        const [updated] = await tx.update(orders).set(updates).where(eq(orders.id, id)).returning();
+        await tx.update(orders).set(updates).where(eq(orders.id, id));
 
         // Fetch all order items with their sizes
         const items = await tx
@@ -456,36 +599,30 @@ export class OrdersService {
             .from(orderItemSizes)
             .where(eq(orderItemSizes.orderItemId, item.id));
 
-          // For each size, look up the recipe and copy materials
-          for (const sizeRow of sizes) {
-            // Find the recipe for this product+size
-            const [recipe] = await tx
-              .select({ id: productRecipes.id })
-              .from(productRecipes)
-              .where(
-                and(
-                  eq(productRecipes.productId, item.productId),
-                  eq(productRecipes.size, sizeRow.size),
-                ),
-              )
-              .limit(1);
+          // Look up the recipe for this product (recipe is per product, not per size)
+          const [recipe] = await tx
+            .select({ id: productRecipes.id })
+            .from(productRecipes)
+            .where(eq(productRecipes.productId, item.productId))
+            .limit(1);
 
-            if (recipe) {
-              // Get recipe materials
-              const recipeMatRows = await tx
-                .select({
-                  materialId: recipeMaterials.materialId,
-                  quantityPerPiece: recipeMaterials.quantityPerPiece,
-                  stage: recipeMaterials.stage,
-                  unit: materials.unit,
-                  averageUnitCost: materials.averageUnitCost,
-                  stockOnHand: materials.stockOnHand,
-                })
-                .from(recipeMaterials)
-                .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
-                .where(eq(recipeMaterials.recipeId, recipe.id));
+          if (recipe) {
+            // Get recipe materials
+            const recipeMatRows = await tx
+              .select({
+                materialId: recipeMaterials.materialId,
+                quantityPerPiece: recipeMaterials.quantityPerPiece,
+                stage: recipeMaterials.stage,
+                unit: materials.unit,
+                averageUnitCost: materials.averageUnitCost,
+                stockOnHand: materials.stockOnHand,
+              })
+              .from(recipeMaterials)
+              .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
+              .where(eq(recipeMaterials.recipeId, recipe.id));
 
-              // Copy each material to orderMaterials
+            // Copy materials for each size
+            for (const sizeRow of sizes) {
               for (const mat of recipeMatRows) {
                 const qtyPerPiece = parseFloat(mat.quantityPerPiece);
                 const totalQty = qtyPerPiece * sizeRow.quantity;
@@ -511,7 +648,6 @@ export class OrdersService {
                 }
               }
             }
-
           }
 
           // Copy machine processes for this product (processes are per-product, not per-size)
@@ -569,7 +705,31 @@ export class OrdersService {
             .where(eq(orders.id, id));
         }
 
-        return updated!;
+        // Compute estimated costs and create labor lines
+        const { costs, laborLines } = await this.costingService.computeEstimatedCosts(
+          id,
+          currentRate?.ratePerKwh ?? null,
+          tx,
+        );
+
+        // Insert orderItemLabor rows
+        if (laborLines.length > 0) {
+          await tx.insert(orderItemLabor).values(laborLines);
+        }
+
+        // Update order with estimated costs
+        await tx
+          .update(orders)
+          .set({
+            estimatedMaterialCost: costs.materialCost.toFixed(2),
+            estimatedElectricityCost: costs.electricityCost.toFixed(2),
+            estimatedLaborCost: costs.laborCost.toFixed(2),
+          })
+          .where(eq(orders.id, id));
+
+        // Return the fully updated order
+        const [finalOrder] = await tx.select().from(orders).where(eq(orders.id, id));
+        return finalOrder!;
       });
     }
 
@@ -1113,36 +1273,30 @@ export class OrdersService {
           .from(orderItemSizes)
           .where(eq(orderItemSizes.orderItemId, item.id));
 
-        // For each size, look up the recipe and copy materials
-        for (const sizeRow of sizes) {
-          // Find the recipe for this product+size
-          const [recipe] = await tx
-            .select({ id: productRecipes.id })
-            .from(productRecipes)
-            .where(
-              and(
-                eq(productRecipes.productId, item.productId),
-                eq(productRecipes.size, sizeRow.size),
-              ),
-            )
-            .limit(1);
+        // Look up the recipe for this product (recipe is per product, not per size)
+        const [recipe] = await tx
+          .select({ id: productRecipes.id })
+          .from(productRecipes)
+          .where(eq(productRecipes.productId, item.productId))
+          .limit(1);
 
-          if (recipe) {
-            // Get recipe materials
-            const recipeMatRows = await tx
-              .select({
-                materialId: recipeMaterials.materialId,
-                quantityPerPiece: recipeMaterials.quantityPerPiece,
-                stage: recipeMaterials.stage,
-                unit: materials.unit,
-                averageUnitCost: materials.averageUnitCost,
-                stockOnHand: materials.stockOnHand,
-              })
-              .from(recipeMaterials)
-              .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
-              .where(eq(recipeMaterials.recipeId, recipe.id));
+        if (recipe) {
+          // Get recipe materials
+          const recipeMatRows = await tx
+            .select({
+              materialId: recipeMaterials.materialId,
+              quantityPerPiece: recipeMaterials.quantityPerPiece,
+              stage: recipeMaterials.stage,
+              unit: materials.unit,
+              averageUnitCost: materials.averageUnitCost,
+              stockOnHand: materials.stockOnHand,
+            })
+            .from(recipeMaterials)
+            .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
+            .where(eq(recipeMaterials.recipeId, recipe.id));
 
-            // Copy each material to orderMaterials
+          // Copy materials for each size
+          for (const sizeRow of sizes) {
             for (const mat of recipeMatRows) {
               const qtyPerPiece = parseFloat(mat.quantityPerPiece);
               const totalQty = qtyPerPiece * sizeRow.quantity;
@@ -1168,7 +1322,6 @@ export class OrdersService {
               }
             }
           }
-
         }
 
         // Copy machine processes for this product (processes are per-product, not per-size)
@@ -1225,6 +1378,28 @@ export class OrdersService {
           .set({ materialStatus: 'SHORT' })
           .where(eq(orders.id, id));
       }
+
+      // Compute estimated costs and create labor lines
+      const { costs, laborLines } = await this.costingService.computeEstimatedCosts(
+        id,
+        currentRate?.ratePerKwh ?? null,
+        tx,
+      );
+
+      // Insert orderItemLabor rows
+      if (laborLines.length > 0) {
+        await tx.insert(orderItemLabor).values(laborLines);
+      }
+
+      // Update order with estimated costs
+      await tx
+        .update(orders)
+        .set({
+          estimatedMaterialCost: costs.materialCost.toFixed(2),
+          estimatedElectricityCost: costs.electricityCost.toFixed(2),
+          estimatedLaborCost: costs.laborCost.toFixed(2),
+        })
+        .where(eq(orders.id, id));
     });
   }
 }

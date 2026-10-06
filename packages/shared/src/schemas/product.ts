@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { money, optionalText } from './_helpers.js';
+import { money, optionalMoney, optionalText } from './_helpers.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Create Product
@@ -23,3 +23,12 @@ export const updateProductSchema = z.object({
   defaultPrice: money.optional(),
 });
 export type UpdateProductData = z.output<typeof updateProductSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Update Product Stage Labor Rate
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateProductStageLaborRateSchema = z.object({
+  laborRatePerPiece: optionalMoney,
+});
+export type UpdateProductStageLaborRateData = z.output<typeof updateProductStageLaborRateSchema>;
