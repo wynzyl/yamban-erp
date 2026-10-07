@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, date, index, pgTable, text, uuid } from 'drizzle-orm/pg-core';
 import { users } from './auth.js';
-import { createdAt, id, money } from './_columns.js';
+import { createdAt, id, money, updatedAt } from './_columns.js';
 import { expenseCategory, paymentMethod } from './enums.js';
 import { suppliers } from './master.js';
 import { orders } from './sales.js';
@@ -24,6 +24,7 @@ export const expenses = pgTable(
     orderId: uuid().references(() => orders.id, { onDelete: 'set null' }),
     createdById: uuid().references(() => users.id, { onDelete: 'set null' }),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (t) => [
     index('expenses_month_idx').on(t.expenseDate, t.category),

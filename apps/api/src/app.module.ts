@@ -10,6 +10,7 @@ import { CostingModule } from './costing/costing.module.js';
 import { CustomersModule } from './customers/customers.module.js';
 import { DatabaseModule } from './db/database.module.js';
 import { DesignModule } from './design/design.module.js';
+import { ExpensesModule } from './expenses/expenses.module.js';
 import { InventoryModule } from './inventory/inventory.module.js';
 import { MachinesModule } from './machines/machines.module.js';
 import { MaterialsModule } from './materials/materials.module.js';
@@ -21,6 +22,7 @@ import { ProductsModule } from './products/products.module.js';
 import { PurchaseRequestsModule } from './purchase-requests/purchase-requests.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
+import { TestValidationController } from './common/controllers/test-validation.controller.js';
 import { HealthController } from './health/health.controller.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -34,6 +36,7 @@ import { UsersModule } from './users/users.module.js';
     CostingModule,
     CustomersModule,
     DesignModule,
+    ExpensesModule,
     InventoryModule,
     MachinesModule,
     MaterialsModule,
@@ -46,7 +49,7 @@ import { UsersModule } from './users/users.module.js';
     SettingsModule,
     SuppliersModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, TestValidationController],
   providers: [
     // Global exception filter
     { provide: APP_FILTER, useClass: HttpExceptionFilter },

@@ -17,3 +17,4 @@ export * from './schemas/costing.js';
 export * from './schemas/product-process.js';
 export * from './schemas/recipe.js';
 export * from './schemas/category.js';
+export * from './schemas/expense.js';

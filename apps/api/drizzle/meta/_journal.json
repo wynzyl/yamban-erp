@@ -57,6 +57,13 @@
       "when": 1791264481301,
       "tag": "0007_add-material-categories",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791356145911,
+      "tag": "0008_add-expense-updated-at",
+      "breakpoints": true
     }
   ]
 }

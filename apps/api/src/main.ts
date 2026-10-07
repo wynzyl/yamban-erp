@@ -1,6 +1,7 @@
 import 'reflect-metadata';
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import type { ValidationError } from 'class-validator';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -23,6 +24,45 @@ async function bootstrap(): Promise<void> {
 
   // Global response interceptor
   app.useGlobalInterceptors(new TransformResponseInterceptor(app.get(Reflector)));
+
+  // Global validation pipe with clean error formatting
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      exceptionFactory: (errors: ValidationError[]) => {
+        const flattenErrors = (
+          errs: ValidationError[],
+          parentProperty = '',
+        ): { property: string; message: string }[] => {
+          return errs.flatMap((error) => {
+            const propertyPath = parentProperty
+              ? `${parentProperty}.${error.property}`
+              : error.property;
+
+            const messages: { property: string; message: string }[] = [];
+
+            if (error.constraints) {
+              messages.push(
+                ...Object.values(error.constraints).map((message) => ({
+                  property: propertyPath,
+                  message,
+                })),
+              );
+            }
+
+            if (error.children && error.children.length > 0) {
+              messages.push(...flattenErrors(error.children, propertyPath));
+            }
+
+            return messages;
+          });
+        };
+
+        return new BadRequestException(flattenErrors(errors));
+      },
+    }),
+  );
 
   // Set up MCP server
   mcp.setHttpAdapter(app.getHttpAdapter());
