@@ -1,10 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { CreateCustomerData, ListQuery, Paginated, UpdateCustomerData } from '@yamban/shared';
-import { and, asc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { escapeLikeTerm } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
-import { customers, organizations } from '../db/schema/index.js';
+import { customers, orders, organizations } from '../db/schema/index.js';
+
+export interface CustomerWithOrdersOption {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
 
 export type CustomerRow = typeof customers.$inferSelect & { organizationName: string | null };
 
@@ -80,6 +86,26 @@ export class CustomersService {
       .where(eq(customers.id, id))
       .returning({ id: customers.id });
     if (!row) throw new NotFoundException('Customer not found.');
+  }
+
+  /** Get customers who have at least one confirmed order (for filter dropdowns). */
+  async listWithOrders(): Promise<CustomerWithOrdersOption[]> {
+    const rows = await this.db
+      .selectDistinct({
+        id: customers.id,
+        firstName: customers.firstName,
+        lastName: customers.lastName,
+      })
+      .from(customers)
+      .innerJoin(orders, eq(orders.customerId, customers.id))
+      .where(
+        and(
+          eq(customers.active, true),
+          sql`${orders.status} IN ('CONFIRMED', 'IN_PRODUCTION', 'READY', 'RELEASED')`,
+        ),
+      )
+      .orderBy(asc(customers.lastName), asc(customers.firstName));
+    return rows;
   }
 }
 

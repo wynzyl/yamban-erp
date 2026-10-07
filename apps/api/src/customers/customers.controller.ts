@@ -7,6 +7,7 @@ import {
   type UpdateCustomerData,
   updateCustomerSchema,
 } from '@yamban/shared';
+import { Roles } from '../common/decorators/roles.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { CustomersService } from './customers.service.js';
 
@@ -17,6 +18,12 @@ export class CustomersController {
   @Get()
   list(@Query(new ZodValidationPipe(listQuerySchema)) q: ListQuery) {
     return this.customers.list(q);
+  }
+
+  @Get('with-orders')
+  @Roles('OWNER')
+  listWithOrders() {
+    return this.customers.listWithOrders();
   }
 
   @Get(':id')

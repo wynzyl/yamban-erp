@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Next up
+
+Next in scope: **Monthly business summary** (needs `/architect` first).
+
 ## Project Overview
 
 Yamban is an ERP system for a sublimation and tailoring shop: orders, inventory, collections, and expenses. It's a monorepo with NestJS API, Next.js web app, PostgreSQL, and a shared package.

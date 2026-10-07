@@ -14,11 +14,13 @@ export class CostingController {
   constructor(private readonly costing: CostingService) {}
 
   @Get('orders')
+  @Roles('OWNER')
   listOrders(@Query(new ZodValidationPipe(listCostingQuerySchema)) q: ListCostingQuery) {
     return this.costing.listOrderCosts(q);
   }
 
   @Get('orders/:id')
+  @Roles('OWNER')
   getOrder(@Param('id', ParseUUIDPipe) id: string) {
     return this.costing.getOrderCostDetail(id);
   }

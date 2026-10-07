@@ -8,8 +8,18 @@ export const listCostingQuerySchema = z.object({
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
   search: z.string().trim().max(100).optional(),
+  customerId: z.string().uuid().optional(),
 });
 export type ListCostingQuery = z.output<typeof listCostingQuerySchema>;
+
+/** Summary of profitability across filtered orders */
+export interface ProfitabilitySummary {
+  totalRevenue: string;
+  totalCost: string;
+  totalProfit: string;
+  avgMarginPercent: string | null;
+  orderCount: number;
+}
 
 export const updateDefaultLaborRatesSchema = z.object({
   rates: z.array(

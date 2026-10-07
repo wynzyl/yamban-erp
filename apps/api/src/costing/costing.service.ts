@@ -42,9 +42,28 @@ export interface OrderCostSummary {
   revenue: string;
   materialCost: string;
   electricityCost: string;
+  laborCost: string;
   totalCost: string;
   profit: string;
   marginPercent: string;
+  isEstimated: boolean;
+  variance: string | null;
+}
+
+export interface ProfitabilitySummary {
+  totalRevenue: string;
+  totalCost: string;
+  totalProfit: string;
+  avgMarginPercent: string | null;
+  orderCount: number;
+}
+
+export interface OrderCostListResponse {
+  items: OrderCostSummary[];
+  summary: ProfitabilitySummary;
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface MaterialCostLine {
@@ -105,8 +124,8 @@ export interface Paginated<T> {
 export class CostingService {
   constructor(@InjectDb() private readonly db: Database) {}
 
-  /** List orders with cost summary. */
-  async listOrderCosts(q: ListCostingQuery): Promise<Paginated<OrderCostSummary>> {
+  /** List orders with cost summary and profitability totals. */
+  async listOrderCosts(q: ListCostingQuery): Promise<OrderCostListResponse> {
     const conditions: SQL[] = [];
 
     // Only include orders that are confirmed or later
@@ -123,6 +142,9 @@ export class CostingService {
     if (q.endDate) {
       conditions.push(lte(orders.orderDate, q.endDate));
     }
+    if (q.customerId) {
+      conditions.push(eq(orders.customerId, q.customerId));
+    }
     if (q.search) {
       const term = escapeLikeTerm(q.search);
       conditions.push(
@@ -138,8 +160,8 @@ export class CostingService {
     const limit = q.limit;
     const offset = (q.page - 1) * limit;
 
-    // Get orders with customer info
-    const [ordersData, total] = await Promise.all([
+    // Get orders with customer info and cost columns
+    const [ordersData, total, summaryData] = await Promise.all([
       this.db
         .select({
           orderId: orders.id,
@@ -150,6 +172,12 @@ export class CostingService {
           status: orders.status,
           revenue: orders.total,
           electricityRate: orders.electricityRatePerKwh,
+          estimatedMaterialCost: orders.estimatedMaterialCost,
+          estimatedElectricityCost: orders.estimatedElectricityCost,
+          estimatedLaborCost: orders.estimatedLaborCost,
+          actualMaterialCost: orders.actualMaterialCost,
+          actualElectricityCost: orders.actualElectricityCost,
+          actualLaborCost: orders.actualLaborCost,
         })
         .from(orders)
         .innerJoin(customers, eq(customers.id, orders.customerId))
@@ -165,16 +193,72 @@ export class CostingService {
           .where(where)
           .as('o'),
       ),
+      // Summary aggregation over ALL filtered orders (not just current page)
+      this.db
+        .select({
+          orderCount: sql<number>`COUNT(*)::int`,
+          totalRevenue: sql<string>`COALESCE(SUM(${orders.total}), 0)`,
+          // Use actual if all three actual columns are non-null, else use estimated
+          totalCost: sql<string>`COALESCE(SUM(
+            CASE
+              WHEN ${orders.actualMaterialCost} IS NOT NULL
+                AND ${orders.actualElectricityCost} IS NOT NULL
+                AND ${orders.actualLaborCost} IS NOT NULL
+              THEN ${orders.actualMaterialCost} + ${orders.actualElectricityCost} + ${orders.actualLaborCost}
+              ELSE COALESCE(${orders.estimatedMaterialCost}, 0)
+                 + COALESCE(${orders.estimatedElectricityCost}, 0)
+                 + COALESCE(${orders.estimatedLaborCost}, 0)
+            END
+          ), 0)`,
+        })
+        .from(orders)
+        .innerJoin(customers, eq(customers.id, orders.customerId))
+        .where(where),
     ]);
 
-    // Calculate costs for each order
+    // Build items with isEstimated and variance
     const items: OrderCostSummary[] = [];
     for (const order of ordersData) {
-      const costs = await this.calculateOrderCosts(order.orderId, order.electricityRate);
+      // Determine if we use actual or estimated costs
+      const hasAllActuals =
+        order.actualMaterialCost !== null &&
+        order.actualElectricityCost !== null &&
+        order.actualLaborCost !== null;
+
+      const isEstimated = !hasAllActuals;
+
+      let materialCost: number;
+      let electricityCost: number;
+      let laborCost: number;
+
+      if (hasAllActuals) {
+        materialCost = parseDecimal(order.actualMaterialCost!);
+        electricityCost = parseDecimal(order.actualElectricityCost!);
+        laborCost = parseDecimal(order.actualLaborCost!);
+      } else {
+        materialCost = parseDecimal(order.estimatedMaterialCost ?? '0');
+        electricityCost = parseDecimal(order.estimatedElectricityCost ?? '0');
+        laborCost = parseDecimal(order.estimatedLaborCost ?? '0');
+      }
+
+      const totalCost = materialCost + electricityCost + laborCost;
       const revenue = parseDecimal(order.revenue);
-      const totalCost = costs.materialCost + costs.electricityCost;
       const profit = revenue - totalCost;
       const marginPercent = revenue > 0 ? (profit / revenue) * 100 : 0;
+
+      // Variance: actual - estimated (only when actuals are known)
+      let variance: string | null = null;
+      if (hasAllActuals) {
+        const actualTotal =
+          parseDecimal(order.actualMaterialCost!) +
+          parseDecimal(order.actualElectricityCost!) +
+          parseDecimal(order.actualLaborCost!);
+        const estimatedTotal =
+          parseDecimal(order.estimatedMaterialCost ?? '0') +
+          parseDecimal(order.estimatedElectricityCost ?? '0') +
+          parseDecimal(order.estimatedLaborCost ?? '0');
+        variance = (actualTotal - estimatedTotal).toFixed(2);
+      }
 
       items.push({
         orderId: order.orderId,
@@ -183,15 +267,34 @@ export class CostingService {
         orderDate: order.orderDate,
         status: order.status,
         revenue: order.revenue,
-        materialCost: costs.materialCost.toFixed(2),
-        electricityCost: costs.electricityCost.toFixed(2),
+        materialCost: materialCost.toFixed(2),
+        electricityCost: electricityCost.toFixed(2),
+        laborCost: laborCost.toFixed(2),
         totalCost: totalCost.toFixed(2),
         profit: profit.toFixed(2),
         marginPercent: marginPercent.toFixed(1),
+        isEstimated,
+        variance,
       });
     }
 
-    return { items, page: q.page, pageSize: limit, total };
+    // Build summary
+    const sumRow = summaryData[0]!;
+    const totalRevenue = parseDecimal(sumRow.totalRevenue);
+    const totalCost = parseDecimal(sumRow.totalCost);
+    const totalProfit = totalRevenue - totalCost;
+    const avgMarginPercent =
+      totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : null;
+
+    const summary: ProfitabilitySummary = {
+      totalRevenue: totalRevenue.toFixed(2),
+      totalCost: totalCost.toFixed(2),
+      totalProfit: totalProfit.toFixed(2),
+      avgMarginPercent,
+      orderCount: sumRow.orderCount,
+    };
+
+    return { items, summary, page: q.page, pageSize: limit, total };
   }
 
   /** Get detailed cost breakdown for an order. */
@@ -436,7 +539,7 @@ export class CostingService {
     let laborCost = 0;
 
     for (const item of items) {
-      // Get product stages with their labor rates
+      // Get product stages with their labor rates (if any overrides exist)
       const stages = await tx
         .select({
           stage: productStages.stage,
@@ -445,19 +548,17 @@ export class CostingService {
         .from(productStages)
         .where(eq(productStages.productId, item.productId));
 
-      // If product has no stages defined, use all production stages
+      // Build a map of product-specific rates for quick lookup
+      const productRateMap = new Map(
+        stages.map((s) => [s.stage, s.laborRatePerPiece]),
+      );
+
+      // Always iterate all production stages; use product rate if set, else default
       const stageList: { stage: ProductionStage; rate: string }[] = [];
-      if (stages.length > 0) {
-        for (const s of stages) {
-          const rate = s.laborRatePerPiece ?? defaultRateMap.get(s.stage) ?? '0';
-          stageList.push({ stage: s.stage, rate });
-        }
-      } else {
-        // No stages defined; use all stages with default rates
-        for (const stage of PRODUCTION_STAGES) {
-          const rate = defaultRateMap.get(stage) ?? '0';
-          stageList.push({ stage, rate });
-        }
+      for (const stage of PRODUCTION_STAGES) {
+        const productRate = productRateMap.get(stage);
+        const rate = productRate ?? defaultRateMap.get(stage) ?? '0';
+        stageList.push({ stage, rate });
       }
 
       // Create labor lines for each stage
