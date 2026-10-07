@@ -59,7 +59,11 @@ export function OrderForm() {
 
   const [customerId, setCustomerId] = useState<string>('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [dueDate, setDueDate] = useState('');
+  const [dueDate, setDueDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 5);
+    return date.toISOString().split('T')[0];
+  });
   const [discount, setDiscount] = useState('0');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<OrderItem[]>([]);
