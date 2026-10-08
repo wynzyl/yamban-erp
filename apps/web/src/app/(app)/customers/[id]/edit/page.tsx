@@ -29,7 +29,7 @@ export default async function EditCustomerPage({ params }: { params: Promise<{ i
   const fullName = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <h1 className="font-display text-[32px] font-semibold leading-tight">Edit {fullName}</h1>
       <CustomerForm initialData={customer} />
     </div>

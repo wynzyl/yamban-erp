@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PRODUCTION_STAGE_LABELS, SIZE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
+import { formatDate, formatMoney, ORDER_STATUS_LABELS, PRODUCTION_STAGE_LABELS, SIZE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
 import { ArrowLeft, Calendar, Edit, Package, Palette, Plus, User, Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { apiFetch } from '@/lib/api';
 import { StatusBadge } from '../status-badge';
 import { DeleteOrderButton } from './delete-button';
+import { PaymentsSection } from './payments-section';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -411,52 +412,16 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       )}
 
       {/* Payments */}
-      <Surface className="mt-6 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="font-medium">Payments ({order.payments.length})</h2>
-          {balance > 0 ? (
-            <Button asChild size="sm">
-              <Link href={`/payments/new?orderId=${order.id}`}>
-                <Plus className="size-4" />
-                Record payment
-              </Link>
-            </Button>
-          ) : (
-            <Button size="sm" disabled>
-              <Plus className="size-4" />
-              Record payment
-            </Button>
-          )}
-        </div>
-        {order.payments.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No payments recorded yet.
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {order.payments.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="whitespace-nowrap">{formatDate(p.paymentDate)}</TableCell>
-                  <TableCell>{PAYMENT_METHOD_LABELS[p.method]}</TableCell>
-                  <TableCell className="text-muted-foreground">{p.reference ?? '—'}</TableCell>
-                  <TableCell className="text-right">
-                    <Money value={p.amount} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Surface>
+      <PaymentsSection
+        order={{
+          id: order.id,
+          orderNumber: order.orderNumber,
+          total: order.total,
+          paidAmount: paidAmount,
+        }}
+        payments={order.payments}
+        balance={balance}
+      />
 
       {/* Notes */}
       <Surface className="mt-6 p-4">

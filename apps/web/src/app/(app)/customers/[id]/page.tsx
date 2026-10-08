@@ -7,6 +7,7 @@ import { CustomerAvatar } from '@/components/domain/customer-avatar';
 import { Button } from '@/components/ui/button';
 import { Surface, SurfaceBody, SurfaceHeader, SurfaceTitle } from '@/components/ui/surface';
 import { apiFetch } from '@/lib/api';
+import { CustomerOrders } from './customer-orders';
 import { DeleteCustomerButton } from './delete-button';
 
 export const metadata: Metadata = { title: 'Customer' };
@@ -44,7 +45,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
   const hasContact = customer.mobile || customer.email || customer.facebook;
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       {/* Back link */}
       <Link
         href="/customers"
@@ -102,39 +103,41 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
       )}
 
       {/* Details */}
-      <Surface className="mt-4">
-        <SurfaceHeader>
-          <SurfaceTitle>Details</SurfaceTitle>
-        </SurfaceHeader>
-        <SurfaceBody>
-          <dl className="grid gap-4 sm:grid-cols-2">
-            {customer.birthday && (
-              <Field label="Birthday">
-                {formatDate(customer.birthday)}
-              </Field>
-            )}
-            {address && (
-              <Field label="Address" wide>
-                <span className="flex items-start gap-2">
-                  <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  {address}
-                </span>
-              </Field>
-            )}
-            {customer.notes && (
-              <Field label="Notes" wide>
-                <p className="whitespace-pre-wrap">{customer.notes}</p>
-              </Field>
-            )}
-            {!customer.birthday && !address && !customer.notes && (
-              <p className="text-muted-foreground sm:col-span-2">No additional details.</p>
-            )}
-          </dl>
-        </SurfaceBody>
-      </Surface>
+      {(customer.birthday || address || customer.notes) && (
+        <Surface className="mt-4">
+          <SurfaceHeader>
+            <SurfaceTitle>Details</SurfaceTitle>
+          </SurfaceHeader>
+          <SurfaceBody>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              {customer.birthday && (
+                <Field label="Birthday">
+                  {formatDate(customer.birthday)}
+                </Field>
+              )}
+              {address && (
+                <Field label="Address" wide>
+                  <span className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    {address}
+                  </span>
+                </Field>
+              )}
+              {customer.notes && (
+                <Field label="Notes" wide>
+                  <p className="whitespace-pre-wrap">{customer.notes}</p>
+                </Field>
+              )}
+            </dl>
+          </SurfaceBody>
+        </Surface>
+      )}
+
+      {/* Orders & Account */}
+      <CustomerOrders customerId={customer.id} customerName={fullName} />
 
       {/* Metadata */}
-      <p className="mt-4 text-sm text-muted-foreground">
+      <p className="mt-6 text-sm text-muted-foreground">
         Added {formatDate(customer.createdAt)}
         {customer.updatedAt !== customer.createdAt && <> · Last updated {formatDate(customer.updatedAt)}</>}
       </p>
