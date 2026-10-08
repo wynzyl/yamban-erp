@@ -12,6 +12,13 @@ interface DesignFileInfo {
   isFinal: boolean;
 }
 
+interface ReadyItemInfo {
+  id: string;
+  productName: string;
+  quantity: number;
+  designFile: DesignFileInfo | null;
+}
+
 interface ReadyOrderRow {
   id: string;
   orderNumber: string;
@@ -23,7 +30,7 @@ interface ReadyOrderRow {
   balance: string;
   dueDate: string | null;
   completedAt: string | null;
-  designFiles: DesignFileInfo[];
+  items: ReadyItemInfo[];
 }
 
 export default async function ReadyPage() {

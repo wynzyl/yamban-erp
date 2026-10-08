@@ -1,7 +1,7 @@
 'use client';
 
 import { formatDate, formatMoney } from '@yamban/shared';
-import { Calendar, CreditCard, Image as ImageIcon, Package, Truck, X } from 'lucide-react';
+import { Calendar, CreditCard, Package, Truck, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
@@ -12,6 +12,13 @@ interface DesignFileInfo {
   fileName: string;
   storageKey: string;
   isFinal: boolean;
+}
+
+interface ReadyItemInfo {
+  id: string;
+  productName: string;
+  quantity: number;
+  designFile: DesignFileInfo | null;
 }
 
 interface ReadyOrderRow {
@@ -25,7 +32,7 @@ interface ReadyOrderRow {
   balance: string;
   dueDate: string | null;
   completedAt: string | null;
-  designFiles: DesignFileInfo[];
+  items: ReadyItemInfo[];
 }
 
 interface ReadyBoardProps {
@@ -71,121 +78,139 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
     setShowLightbox(true);
   };
 
+  // Collect all design files from items
+  const designFiles = order.items
+    .map((item) => item.designFile)
+    .filter((df): df is DesignFileInfo => df !== null);
+
   return (
-    <div className="rounded-surface border border-border bg-card p-3">
-      <div className="flex items-center gap-3">
-        {/* Left: Text content */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* Header row: Order number + quantity */}
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/orders/${order.id}`}
-              className="truncate font-medium text-foreground hover:text-primary hover:underline"
-            >
-              {order.orderNumber}
-            </Link>
-            <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-              {order.totalQuantity} pcs
+    <div className="rounded-surface border border-border bg-card overflow-hidden">
+      {/* Design thumbnail - single image */}
+      {designFiles.length > 0 && (
+        <button
+          type="button"
+          className="group relative aspect-[16/9] w-full overflow-hidden bg-muted"
+          onClick={() => openLightbox(designFiles[0].storageKey)}
+        >
+          <img
+            src={`/api/files/${designFiles[0].storageKey}`}
+            alt="Design"
+            className="size-full object-cover transition-transform duration-200 group-hover:scale-105"
+          />
+          {designFiles.length > 1 && (
+            <span className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
+              +{designFiles.length - 1} more
             </span>
-          </div>
+          )}
+        </button>
+      )}
 
-          {/* Customer name */}
-          <p className="truncate text-sm text-muted-foreground">{order.customerName}</p>
+      {/* Content */}
+      <div className="p-4">
+        {/* Header: Order number + total pcs */}
+        <div className="flex items-baseline justify-between gap-2">
+          <Link
+            href={`/orders/${order.id}`}
+            className="font-display text-lg font-semibold text-foreground hover:text-primary"
+          >
+            {order.orderNumber}
+          </Link>
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {order.totalQuantity} pcs
+          </span>
+        </div>
 
-          {/* Payment info */}
-          <div className="mt-1.5 space-y-0.5 text-sm">
-            <div className="flex gap-3">
-              <span className="text-muted-foreground">Total: <span className="font-medium text-foreground">{formatMoney(order.total)}</span></span>
-              <span className="text-muted-foreground">Paid: <span className="text-success">{formatMoney(order.paid)}</span></span>
-            </div>
-            {hasBalance && (
-              <div className="text-muted-foreground">
-                Balance: <span className="font-medium text-destructive">{formatMoney(order.balance)}</span>
-              </div>
+        {/* Customer */}
+        <p className="mt-0.5 text-sm text-muted-foreground">{order.customerName}</p>
+
+        {/* Items list */}
+        <ul className="mt-3 space-y-1 border-l-2 border-border pl-3">
+          {order.items.map((item) => (
+            <li key={item.id} className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="text-foreground">{item.productName}</span>
+              <span className="tabular-nums text-muted-foreground">{item.quantity}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Payment section - Balance leads per design system */}
+        <div className="mt-4 flex items-end justify-between gap-4">
+          <div className="space-y-0.5">
+            {hasBalance ? (
+              <>
+                <p className="text-xs text-muted-foreground">Balance</p>
+                <p className="yb-money text-lg font-semibold text-partial-text">
+                  {formatMoney(order.balance)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  of {formatMoney(order.total)} total
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="yb-money text-lg font-semibold text-success">
+                  {formatMoney(order.total)}
+                </p>
+                <p className="text-xs text-success">Paid</p>
+              </>
             )}
           </div>
 
-          {/* Meta row: dates */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            {order.dueDate && (
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Calendar className="size-3" />
-                {formatDate(order.dueDate)}
-              </span>
-            )}
-            {order.completedAt && (
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <Package className="size-3" />
-                Packed {formatDate(order.completedAt)}
-              </span>
+          {/* Action */}
+          <div className="shrink-0">
+            {hasBalance ? (
+              <Button size="sm" asChild>
+                <Link href={`/payments/new?orderId=${order.id}`}>
+                  <CreditCard className="size-4" />
+                  Receive payment
+                </Link>
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleRelease} disabled={isPending}>
+                <Truck className="size-4" />
+                Release
+              </Button>
             )}
           </div>
         </div>
 
-        {/* Middle: Design thumbnails */}
-        {order.designFiles.length > 0 && (
-          <div className="flex shrink-0 gap-1 self-center">
-            {order.designFiles.slice(0, 2).map((file) => (
-              <button
-                key={file.id}
-                type="button"
-                className="group relative h-20 w-[120px] shrink-0 overflow-hidden rounded border border-border"
-                onClick={() => openLightbox(file.storageKey)}
-              >
-                <img
-                  src={`/api/files/${file.storageKey}`}
-                  alt="Design"
-                  className="size-full object-cover transition-opacity group-hover:opacity-80"
-                />
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
-                  <ImageIcon className="size-5 text-white" />
-                </div>
-              </button>
-            ))}
-            {order.designFiles.length > 2 && (
-              <div className="flex h-20 w-10 items-center justify-center rounded border border-border bg-muted text-xs text-muted-foreground">
-                +{order.designFiles.length - 2}
-              </div>
-            )}
-          </div>
-        )}
+        {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
 
-        {/* Right: Action button */}
-        <div className="shrink-0">
-          {hasBalance ? (
-            <Button size="sm" asChild>
-              <Link href={`/payments/new?orderId=${order.id}`}>
-                <CreditCard className="size-4" />
-                Receive payment
-              </Link>
-            </Button>
-          ) : (
-            <Button size="sm" onClick={handleRelease} disabled={isPending}>
-              <Truck className="size-4" />
-              Mark delivered
-            </Button>
+        {/* Meta row */}
+        <div className="mt-3 flex items-center gap-3 border-t border-border pt-3 text-xs text-muted-foreground">
+          {order.dueDate && (
+            <span className="flex items-center gap-1">
+              <Calendar className="size-3" />
+              Due {formatDate(order.dueDate)}
+            </span>
           )}
-          {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+          {order.completedAt && (
+            <span className="flex items-center gap-1">
+              <Package className="size-3" />
+              Packed {formatDate(order.completedAt)}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Lightbox */}
       {showLightbox && lightboxImage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={() => setShowLightbox(false)}
         >
           <button
             type="button"
-            className="absolute right-4 top-4 text-white hover:text-gray-300"
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
             onClick={() => setShowLightbox(false)}
           >
-            <X className="size-8" />
+            <X className="size-6" />
           </button>
           <img
             src={lightboxImage}
             alt="Design"
-            className="max-h-[90vh] max-w-[90vw] object-contain"
+            className="max-h-[90vh] max-w-[90vw] rounded-surface object-contain"
             onClick={(e) => e.stopPropagation()}
           />
         </div>
@@ -204,7 +229,7 @@ export function ReadyBoard({ orders }: ReadyBoardProps) {
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {orders.map((order) => (
         <OrderCard key={order.id} order={order} />
       ))}

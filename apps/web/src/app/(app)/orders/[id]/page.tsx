@@ -414,12 +414,19 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       <Surface className="mt-6 overflow-hidden">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="font-medium">Payments ({order.payments.length})</h2>
-          <Button asChild size="sm">
-            <Link href={`/payments/new?orderId=${order.id}`}>
+          {balance > 0 ? (
+            <Button asChild size="sm">
+              <Link href={`/payments/new?orderId=${order.id}`}>
+                <Plus className="size-4" />
+                Record payment
+              </Link>
+            </Button>
+          ) : (
+            <Button size="sm" disabled>
               <Plus className="size-4" />
               Record payment
-            </Link>
-          </Button>
+            </Button>
+          )}
         </div>
         {order.payments.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">

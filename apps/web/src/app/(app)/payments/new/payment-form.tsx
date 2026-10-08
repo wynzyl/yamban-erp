@@ -50,9 +50,14 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
         const res = await fetch('/api/orders?pageSize=100', { credentials: 'include' });
         if (res.ok) {
           const { data } = await res.json();
-          setOrders(data.items);
+          // Filter out fully paid orders (balance <= 0)
+          const unpaidOrders = data.items.filter((o: OrderOption) => {
+            const orderBalance = parseFloat(o.total) - parseFloat(o.paidAmount);
+            return orderBalance > 0;
+          });
+          setOrders(unpaidOrders);
           if (defaultOrderId) {
-            const order = data.items.find((o: OrderOption) => o.id === defaultOrderId);
+            const order = unpaidOrders.find((o: OrderOption) => o.id === defaultOrderId);
             if (order) {
               setSelectedOrder(order);
               setOrderId(defaultOrderId);
@@ -79,6 +84,12 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
       reference: form.get('reference') as string,
       notes: form.get('notes') as string,
     };
+
+    // Prevent payment if balance is zero or negative
+    if (balance <= 0) {
+      setErrors({ form: 'Cannot record payment: order is already fully paid.' });
+      return;
+    }
 
     const result = createPaymentSchema.safeParse(data);
     if (!result.success) {
@@ -137,6 +148,10 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
               <div className="flex h-10 items-center">
                 <Loader2 className="size-4 animate-spin text-muted-foreground" />
               </div>
+            ) : orders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No orders with outstanding balance.
+              </p>
             ) : (
               <Select
                 value={orderId}
@@ -264,7 +279,7 @@ export function PaymentForm({ defaultOrderId }: PaymentFormProps) {
       </Surface>
 
       <div className="mt-6 flex items-center gap-3">
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" disabled={isPending || !selectedOrder || balance <= 0}>
           {isPending ? (
             <>
               <Loader2 className="size-4 animate-spin" />

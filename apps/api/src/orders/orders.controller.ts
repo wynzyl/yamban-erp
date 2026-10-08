@@ -22,8 +22,11 @@ export class OrdersController {
   @Get()
   @ResponseMessage('Orders retrieved successfully')
   list(
-    @Query(new ZodValidationPipe(listQuerySchema.extend({ status: listQuerySchema.shape.search })))
-    query: { page: number; pageSize: number; search?: string; status?: string },
+    @Query(new ZodValidationPipe(listQuerySchema.extend({
+      status: listQuerySchema.shape.search,
+      payment: listQuerySchema.shape.search,
+    })))
+    query: { page: number; pageSize: number; search?: string; status?: string; payment?: string },
     @CurrentUser('role') role: UserRole,
   ) {
     return this.orders.list(query, role);

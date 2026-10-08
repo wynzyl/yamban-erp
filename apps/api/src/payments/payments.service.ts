@@ -1,6 +1,6 @@
-import { forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { CreatePaymentData, ListQuery, Paginated, UpdatePaymentData } from '@yamban/shared';
-import { and, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import { customers, orders, payments } from '../db/schema/index.js';
@@ -120,13 +120,34 @@ export class PaymentsService {
   }
 
   async create(data: CreatePaymentData, userId: string) {
-    // Verify order exists and get its status
+    // Verify order exists, get its status and calculate balance
+    const paidSubquery = this.db
+      .select({
+        orderId: payments.orderId,
+        total: sql<string>`coalesce(sum(${payments.amount}), '0')`.as('paid_total'),
+      })
+      .from(payments)
+      .groupBy(payments.orderId)
+      .as('paid');
+
     const [order] = await this.db
-      .select({ id: orders.id, status: orders.status })
+      .select({
+        id: orders.id,
+        status: orders.status,
+        total: orders.total,
+        paidAmount: sql<string>`coalesce(${paidSubquery.total}, '0')`,
+      })
       .from(orders)
+      .leftJoin(paidSubquery, eq(paidSubquery.orderId, orders.id))
       .where(eq(orders.id, data.orderId))
       .limit(1);
     if (!order) throw new NotFoundException('Order not found.');
+
+    // Calculate balance and reject if already fully paid or overpaid
+    const balance = parseFloat(order.total) - parseFloat(order.paidAmount);
+    if (balance <= 0) {
+      throw new BadRequestException('Cannot record payment: order is already fully paid.');
+    }
 
     const [row] = await this.db
       .insert(payments)
