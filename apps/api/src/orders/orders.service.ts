@@ -4,6 +4,7 @@ import type {
   CreateOrderData,
   EditOrderData,
   EditPermissions,
+  GarmentSize,
   ListQuery,
   OrderStatus,
   Paginated,
@@ -51,9 +52,13 @@ export interface OrderListRow {
   orderDate: string;
   dueDate: string | null;
   status: string;
+  /** Current production stage (earliest incomplete stage), null if not in production */
+  productionStage: string | null;
   total: string;
   paidAmount: string;
   itemCount: number;
+  /** Days overdue if released/past due date with balance */
+  daysOverdue?: number;
   // Cost fields for Owner only
   totalProductionCost?: string;
 }
@@ -134,6 +139,10 @@ export class OrdersService {
 
     let hasShortage = false;
 
+    // Collect all inserts for batch operations
+    const materialInserts: (typeof orderMaterials.$inferInsert)[] = [];
+    const processInserts: (typeof orderItemProcesses.$inferInsert)[] = [];
+
     // Create material snapshots and production jobs for each item
     for (const item of items) {
       // Get sizes for this item
@@ -164,7 +173,7 @@ export class OrdersService {
           .innerJoin(materials, eq(materials.id, recipeMaterials.materialId))
           .where(eq(recipeMaterials.recipeId, recipe.id));
 
-        // Copy materials for each size
+        // Collect materials for each size (batch insert later)
         for (const sizeRow of sizes) {
           for (const mat of recipeMatRows) {
             const qtyPerPiece = parseDecimal(mat.quantityPerPiece);
@@ -172,7 +181,7 @@ export class OrdersService {
             const unitCost = parseDecimal(mat.averageUnitCost);
             const totalCost = totalQty * unitCost;
 
-            await tx.insert(orderMaterials).values({
+            materialInserts.push({
               orderItemId: item.id,
               materialId: mat.materialId,
               size: sizeRow.size,
@@ -203,10 +212,10 @@ export class OrdersService {
         .innerJoin(machines, eq(machines.id, productSizeProcesses.machineId))
         .where(eq(productSizeProcesses.productId, item.productId));
 
-      // Create orderItemProcesses for each size
+      // Collect orderItemProcesses for each size (batch insert later)
       for (const sizeRow of sizes) {
         for (const proc of processes) {
-          await tx.insert(orderItemProcesses).values({
+          processInserts.push({
             orderItemId: item.id,
             size: sizeRow.size,
             machineId: proc.machineId,
@@ -217,26 +226,18 @@ export class OrdersService {
         }
       }
 
-      // Create production jobs for each stage
-      for (const [i, stage] of PRODUCTION_STAGES.entries()) {
-        const [job] = await tx
-          .insert(productionJobs)
-          .values({
-            orderId: orderId,
-            orderItemId: item.id,
-            stage,
-            sequence: i + 1,
-            plannedQuantity: item.quantity,
-          })
-          .returning();
+      // Create production jobs for each stage using helper
+      await this.createProductionJobsForItem(tx, orderId, item.id, item.quantity);
+    }
 
-        // For DESIGN stage, also create a design_jobs row
-        if (stage === 'DESIGN' && job) {
-          await tx.insert(designJobs).values({
-            productionJobId: job.id,
-          });
-        }
-      }
+    // Batch insert all materials
+    if (materialInserts.length > 0) {
+      await tx.insert(orderMaterials).values(materialInserts);
+    }
+
+    // Batch insert all processes
+    if (processInserts.length > 0) {
+      await tx.insert(orderItemProcesses).values(processInserts);
     }
 
     // Update material status if there's a shortage
@@ -272,7 +273,130 @@ export class OrdersService {
     return { hasShortage };
   }
 
-  async list(q: ListQuery & { status?: string }, role?: UserRole): Promise<Paginated<OrderListRow>> {
+  /**
+   * Recalculates order subtotal and total based on current item subtotals and discount.
+   * Must be called within a transaction.
+   */
+  private async recalculateOrderTotals(
+    tx: Database,
+    orderId: string,
+  ): Promise<{ subtotal: string; total: string }> {
+    const allItems = await tx
+      .select({ subtotal: orderItems.subtotal })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+
+    const orderSubtotal = allItems.reduce((sum, i) => sum + parseDecimal(i.subtotal), 0);
+
+    const [order] = await tx
+      .select({ discount: orders.discount })
+      .from(orders)
+      .where(eq(orders.id, orderId));
+
+    const discount = parseDecimal(order?.discount);
+    const orderTotal = Math.max(0, orderSubtotal - discount);
+
+    await tx
+      .update(orders)
+      .set({
+        subtotal: orderSubtotal.toFixed(2),
+        total: orderTotal.toFixed(2),
+      })
+      .where(eq(orders.id, orderId));
+
+    return { subtotal: orderSubtotal.toFixed(2), total: orderTotal.toFixed(2) };
+  }
+
+  /**
+   * Creates production jobs for all stages for an order item.
+   * Must be called within a transaction.
+   */
+  private async createProductionJobsForItem(
+    tx: Database,
+    orderId: string,
+    itemId: string,
+    quantity: number,
+  ): Promise<void> {
+    for (const [i, stage] of PRODUCTION_STAGES.entries()) {
+      const [job] = await tx
+        .insert(productionJobs)
+        .values({
+          orderId,
+          orderItemId: itemId,
+          stage,
+          sequence: i + 1,
+          plannedQuantity: quantity,
+        })
+        .returning();
+
+      if (stage === 'DESIGN' && job) {
+        await tx.insert(designJobs).values({
+          productionJobId: job.id,
+        });
+      }
+    }
+  }
+
+  /**
+   * Inserts a new order item with sizes and optional roster.
+   * Returns the new item ID.
+   * Must be called within a transaction.
+   */
+  private async insertOrderItem(
+    tx: Database,
+    orderId: string,
+    itemData: {
+      productId: string;
+      description?: string | null;
+      sizes: { size: GarmentSize; quantity: number; unitPrice: string }[];
+      roster?: { playerName: string; jerseyNumber?: string | null; size: GarmentSize }[];
+    },
+  ): Promise<string> {
+    // Calculate item totals
+    let itemQty = 0;
+    let itemSubtotal = 0;
+    for (const size of itemData.sizes) {
+      itemQty += size.quantity;
+      itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
+    }
+
+    // Insert order item
+    const [item] = await tx
+      .insert(orderItems)
+      .values({
+        orderId,
+        productId: itemData.productId,
+        description: itemData.description,
+        quantity: itemQty,
+        subtotal: itemSubtotal.toFixed(2),
+      })
+      .returning();
+
+    // Batch insert sizes
+    const sizeInserts = itemData.sizes.map((s) => ({
+      orderItemId: item!.id,
+      size: s.size,
+      quantity: s.quantity,
+      unitPrice: s.unitPrice,
+      subtotal: (parseDecimal(s.unitPrice) * s.quantity).toFixed(2),
+    }));
+    await tx.insert(orderItemSizes).values(sizeInserts);
+
+    // Batch insert roster
+    if (itemData.roster && itemData.roster.length > 0) {
+      const rosterInserts = itemData.roster.map((r) => ({
+        orderItemId: item!.id,
+        playerName: r.playerName,
+        jerseyNumber: r.jerseyNumber || null,
+        size: r.size,
+      }));
+      await tx.insert(orderRoster).values(rosterInserts);
+    }
+
+    return item!.id;
+  }
+
+  async list(q: ListQuery & { status?: string; payment?: string }, role?: UserRole): Promise<Paginated<OrderListRow>> {
     const conditions: SQL[] = [];
 
     if (q.search) {
@@ -288,7 +412,33 @@ export class OrdersService {
     }
 
     if (q.status) {
-      conditions.push(eq(orders.status, q.status as OrderStatus));
+      if (q.status === 'CONFIRMED') {
+        // Confirmed = orders confirmed but no production started (all jobs still PENDING)
+        // Use NOT EXISTS to find orders where no job has started
+        conditions.push(
+          and(
+            eq(orders.status, 'CONFIRMED'),
+            sql`NOT EXISTS (
+              SELECT 1 FROM ${productionJobs} pj
+              WHERE pj.order_id = ${orders.id}
+              AND pj.status != 'PENDING'
+            )`,
+          )!,
+        );
+      } else if (q.status === 'IN_PRODUCTION') {
+        // In Production = orders where at least one job in Design/Printing/Heat Press/Sewing
+        // has started (IN_PROGRESS) or the current stage is one of these
+        conditions.push(
+          sql`EXISTS (
+            SELECT 1 FROM ${productionJobs} pj
+            WHERE pj.order_id = ${orders.id}
+            AND pj.stage IN ('DESIGN', 'PRINTING', 'HEAT_PRESS', 'SEWING')
+            AND pj.status = 'IN_PROGRESS'
+          )`,
+        );
+      } else {
+        conditions.push(eq(orders.status, q.status as OrderStatus));
+      }
     }
 
     const where = conditions.length ? and(...conditions) : undefined;
@@ -314,6 +464,23 @@ export class OrdersService {
       .groupBy(orderItems.orderId)
       .as('items');
 
+    // Subquery for current production stage (earliest incomplete stage)
+    // A stage is complete when all its jobs are COMPLETED
+    const stageSubquery = this.db
+      .select({
+        orderId: productionJobs.orderId,
+        currentStage: sql<string>`
+          (SELECT pj.stage FROM ${productionJobs} pj
+           WHERE pj.order_id = ${productionJobs.orderId}
+             AND pj.status != 'COMPLETED'
+           ORDER BY pj.sequence ASC
+           LIMIT 1)
+        `.as('current_stage'),
+      })
+      .from(productionJobs)
+      .groupBy(productionJobs.orderId)
+      .as('stage');
+
     const [rows, total] = await Promise.all([
       this.db
         .select({
@@ -329,6 +496,7 @@ export class OrdersService {
           total: orders.total,
           paidAmount: sql<string>`coalesce(${paidSubquery.total}, '0')`,
           itemCount: sql<number>`coalesce(${itemCountSubquery.count}, 0)`,
+          productionStage: stageSubquery.currentStage,
           // Cost fields for Owner
           estimatedMaterialCost: orders.estimatedMaterialCost,
           estimatedElectricityCost: orders.estimatedElectricityCost,
@@ -339,6 +507,7 @@ export class OrdersService {
         .leftJoin(organizations, eq(organizations.id, orders.organizationId))
         .leftJoin(paidSubquery, eq(paidSubquery.orderId, orders.id))
         .leftJoin(itemCountSubquery, eq(itemCountSubquery.orderId, orders.id))
+        .leftJoin(stageSubquery, eq(stageSubquery.orderId, orders.id))
         .where(where)
         .orderBy(desc(orders.orderDate), desc(orders.createdAt))
         .limit(q.pageSize)
@@ -354,8 +523,25 @@ export class OrdersService {
       ),
     ]);
 
-    // Transform rows, adding cost data for Owner only
+    // Transform rows, adding cost data and calculating overdue days
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const items: OrderListRow[] = rows.map((row) => {
+      const totalAmount = parseDecimal(row.total);
+      const paidAmount = parseDecimal(row.paidAmount);
+      const balance = totalAmount - paidAmount;
+
+      // Calculate days overdue if released/past due with balance
+      let daysOverdue: number | undefined;
+      if (balance > 0 && row.dueDate) {
+        const dueDate = new Date(row.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        if (today > dueDate) {
+          daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
       const base: OrderListRow = {
         id: row.id,
         orderNumber: row.orderNumber,
@@ -366,9 +552,11 @@ export class OrdersService {
         orderDate: row.orderDate,
         dueDate: row.dueDate,
         status: row.status,
+        productionStage: row.productionStage ?? null,
         total: row.total,
         paidAmount: row.paidAmount,
         itemCount: row.itemCount,
+        daysOverdue,
       };
 
       // Add cost data for Owner
@@ -382,7 +570,30 @@ export class OrdersService {
       return base;
     });
 
-    return { items, page: q.page, pageSize: q.pageSize, total };
+    // Filter by payment tier if requested
+    let filteredItems = items;
+    if (q.payment) {
+      filteredItems = items.filter((item) => {
+        const totalAmount = parseDecimal(item.total);
+        const paidAmount = parseDecimal(item.paidAmount);
+        const balance = totalAmount - paidAmount;
+
+        switch (q.payment) {
+          case 'unpaid':
+            return paidAmount === 0 && balance > 0;
+          case 'balance':
+            return paidAmount > 0 && balance > 0 && !item.daysOverdue;
+          case 'paid':
+            return balance <= 0;
+          case 'overdue':
+            return (item.daysOverdue ?? 0) > 0;
+          default:
+            return true;
+        }
+      });
+    }
+
+    return { items: filteredItems, page: q.page, pageSize: q.pageSize, total: q.payment ? filteredItems.length : total };
   }
 
   async get(id: string, role?: UserRole): Promise<OrderDetailRow & { items: OrderItemDetail[]; payments: PaymentRow[]; productionJobs: ProductionJobRow[]; costBreakdown?: OrderCostBreakdown }> {
@@ -639,49 +850,14 @@ export class OrdersService {
         })
         .returning();
 
-      // Insert items
+      // Insert items using helper
       for (const itemData of data.items) {
-        let itemQty = 0;
-        let itemSubtotal = 0;
-        for (const size of itemData.sizes) {
-          itemQty += size.quantity;
-          itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
-        }
-
-        const [item] = await tx
-          .insert(orderItems)
-          .values({
-            orderId: order!.id,
-            productId: itemData.productId,
-            description: itemData.description,
-            quantity: itemQty,
-            subtotal: itemSubtotal.toFixed(2),
-          })
-          .returning();
-
-        // Insert sizes
-        for (const sizeData of itemData.sizes) {
-          const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
-          await tx.insert(orderItemSizes).values({
-            orderItemId: item!.id,
-            size: sizeData.size,
-            quantity: sizeData.quantity,
-            unitPrice: sizeData.unitPrice,
-            subtotal: sizeSubtotal.toFixed(2),
-          });
-        }
-
-        // Insert roster entries
-        if (itemData.roster && itemData.roster.length > 0) {
-          for (const rosterEntry of itemData.roster) {
-            await tx.insert(orderRoster).values({
-              orderItemId: item!.id,
-              playerName: rosterEntry.playerName,
-              jerseyNumber: rosterEntry.jerseyNumber || null,
-              size: rosterEntry.size,
-            });
-          }
-        }
+        await this.insertOrderItem(tx, order!.id, {
+          productId: itemData.productId,
+          description: itemData.description,
+          sizes: itemData.sizes,
+          roster: itemData.roster,
+        });
       }
 
       return order!;
@@ -878,17 +1054,15 @@ export class OrdersService {
 
       // Upsert items
       for (const itemData of data.items) {
-        let itemQty = 0;
-        let itemSubtotal = 0;
-        for (const size of itemData.sizes) {
-          itemQty += size.quantity;
-          itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
-        }
-
-        let itemId: string;
-
         if (itemData.id && existingItemIds.has(itemData.id)) {
           // Update existing item
+          let itemQty = 0;
+          let itemSubtotal = 0;
+          for (const size of itemData.sizes) {
+            itemQty += size.quantity;
+            itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
+          }
+
           await tx
             .update(orderItems)
             .set({
@@ -898,50 +1072,40 @@ export class OrdersService {
             })
             .where(eq(orderItems.id, itemData.id));
 
-          itemId = itemData.id;
-          updatedItemIds.add(itemId);
+          updatedItemIds.add(itemData.id);
 
           // Delete old sizes and roster for this item
-          await tx.delete(orderItemSizes).where(eq(orderItemSizes.orderItemId, itemId));
-          await tx.delete(orderRoster).where(eq(orderRoster.orderItemId, itemId));
-        } else {
-          // Insert new item
-          const [item] = await tx
-            .insert(orderItems)
-            .values({
-              orderId: id,
-              productId: itemData.productId,
-              description: itemData.description,
-              quantity: itemQty,
-              subtotal: itemSubtotal.toFixed(2),
-            })
-            .returning();
+          await tx.delete(orderItemSizes).where(eq(orderItemSizes.orderItemId, itemData.id));
+          await tx.delete(orderRoster).where(eq(orderRoster.orderItemId, itemData.id));
 
-          itemId = item!.id;
-        }
+          // Batch insert new sizes
+          const sizeInserts = itemData.sizes.map((s) => ({
+            orderItemId: itemData.id!,
+            size: s.size,
+            quantity: s.quantity,
+            unitPrice: s.unitPrice,
+            subtotal: (parseDecimal(s.unitPrice) * s.quantity).toFixed(2),
+          }));
+          await tx.insert(orderItemSizes).values(sizeInserts);
 
-        // Insert sizes
-        for (const sizeData of itemData.sizes) {
-          const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
-          await tx.insert(orderItemSizes).values({
-            orderItemId: itemId,
-            size: sizeData.size,
-            quantity: sizeData.quantity,
-            unitPrice: sizeData.unitPrice,
-            subtotal: sizeSubtotal.toFixed(2),
-          });
-        }
-
-        // Insert roster entries
-        if (itemData.roster && itemData.roster.length > 0) {
-          for (const rosterEntry of itemData.roster) {
-            await tx.insert(orderRoster).values({
-              orderItemId: itemId,
-              playerName: rosterEntry.playerName,
-              jerseyNumber: rosterEntry.jerseyNumber || null,
-              size: rosterEntry.size,
-            });
+          // Batch insert roster entries
+          if (itemData.roster && itemData.roster.length > 0) {
+            const rosterInserts = itemData.roster.map((r) => ({
+              orderItemId: itemData.id!,
+              playerName: r.playerName,
+              jerseyNumber: r.jerseyNumber || null,
+              size: r.size,
+            }));
+            await tx.insert(orderRoster).values(rosterInserts);
           }
+        } else {
+          // Insert new item using helper
+          await this.insertOrderItem(tx, id, {
+            productId: itemData.productId,
+            description: itemData.description,
+            sizes: itemData.sizes,
+            roster: itemData.roster,
+          });
         }
       }
 
@@ -979,14 +1143,15 @@ export class OrdersService {
       // Delete existing roster entries for this item
       await tx.delete(orderRoster).where(eq(orderRoster.orderItemId, itemId));
 
-      // Insert new roster entries
-      for (const entry of data.roster) {
-        await tx.insert(orderRoster).values({
+      // Batch insert new roster entries
+      if (data.roster.length > 0) {
+        const rosterInserts = data.roster.map((entry) => ({
           orderItemId: itemId,
           playerName: entry.playerName,
           jerseyNumber: entry.jerseyNumber || null,
           size: entry.size,
-        });
+        }));
+        await tx.insert(orderRoster).values(rosterInserts);
       }
 
       // Return updated roster
@@ -1066,29 +1231,8 @@ export class OrdersService {
         .set({ quantity: itemQuantity, subtotal: itemSubtotal.toFixed(2) })
         .where(eq(orderItems.id, itemId));
 
-      // Recalculate order totals
-      const allItems = await tx
-        .select({ subtotal: orderItems.subtotal })
-        .from(orderItems)
-        .where(eq(orderItems.orderId, orderId));
-
-      const orderSubtotal = allItems.reduce((sum, i) => sum + parseDecimal(i.subtotal), 0);
-
-      const [order] = await tx
-        .select({ discount: orders.discount })
-        .from(orders)
-        .where(eq(orders.id, orderId));
-
-      const discount = parseDecimal(order?.discount);
-      const orderTotal = Math.max(0, orderSubtotal - discount);
-
-      await tx
-        .update(orders)
-        .set({
-          subtotal: orderSubtotal.toFixed(2),
-          total: orderTotal.toFixed(2),
-        })
-        .where(eq(orders.id, orderId));
+      // Recalculate order totals using helper
+      await this.recalculateOrderTotals(tx, orderId);
 
       // Return updated order
       const [updated] = await tx.select().from(orders).where(eq(orders.id, orderId));
@@ -1136,98 +1280,32 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found.');
 
     return await this.db.transaction(async (tx) => {
-      // Calculate item totals
-      let itemQty = 0;
-      let itemSubtotal = 0;
-      for (const size of data.sizes) {
-        itemQty += size.quantity;
-        itemSubtotal += parseDecimal(size.unitPrice) * size.quantity;
-      }
+      // Insert order item using helper
+      const itemId = await this.insertOrderItem(tx, orderId, {
+        productId: data.productId,
+        description: data.description,
+        sizes: data.sizes,
+        roster: data.roster,
+      });
 
-      // Insert order item
-      const [item] = await tx
-        .insert(orderItems)
-        .values({
-          orderId,
-          productId: data.productId,
-          description: data.description,
-          quantity: itemQty,
-          subtotal: itemSubtotal.toFixed(2),
-        })
-        .returning();
+      // Calculate quantity for production jobs
+      const itemQty = data.sizes.reduce((sum, s) => sum + s.quantity, 0);
 
-      // Insert sizes
-      for (const sizeData of data.sizes) {
-        const sizeSubtotal = parseDecimal(sizeData.unitPrice) * sizeData.quantity;
-        await tx.insert(orderItemSizes).values({
-          orderItemId: item!.id,
-          size: sizeData.size,
-          quantity: sizeData.quantity,
-          unitPrice: sizeData.unitPrice,
-          subtotal: sizeSubtotal.toFixed(2),
-        });
-      }
-
-      // Insert roster entries
-      if (data.roster && data.roster.length > 0) {
-        for (const rosterEntry of data.roster) {
-          await tx.insert(orderRoster).values({
-            orderItemId: item!.id,
-            playerName: rosterEntry.playerName,
-            jerseyNumber: rosterEntry.jerseyNumber || null,
-            size: rosterEntry.size,
-          });
-        }
-      }
-
-      // If order is confirmed or beyond, create production jobs
+      // If order is confirmed or beyond, create production jobs using helper
       if (order.status !== 'QUOTATION') {
-        for (const [i, stage] of PRODUCTION_STAGES.entries()) {
-          const [job] = await tx
-            .insert(productionJobs)
-            .values({
-              orderId,
-              orderItemId: item!.id,
-              stage,
-              sequence: i + 1,
-              plannedQuantity: itemQty,
-            })
-            .returning();
-
-          // For DESIGN stage, create design_jobs row
-          if (stage === 'DESIGN' && job) {
-            await tx.insert(designJobs).values({
-              productionJobId: job.id,
-            });
-          }
-        }
+        await this.createProductionJobsForItem(tx, orderId, itemId, itemQty);
       }
 
-      // Recalculate order totals
-      const allItems = await tx
-        .select({ subtotal: orderItems.subtotal })
+      // Recalculate order totals using helper
+      await this.recalculateOrderTotals(tx, orderId);
+
+      // Fetch and return the created item
+      const [createdItem] = await tx
+        .select()
         .from(orderItems)
-        .where(eq(orderItems.orderId, orderId));
+        .where(eq(orderItems.id, itemId));
 
-      const orderSubtotal = allItems.reduce((sum, i) => sum + parseDecimal(i.subtotal), 0);
-
-      const [existingOrder] = await tx
-        .select({ discount: orders.discount })
-        .from(orders)
-        .where(eq(orders.id, orderId));
-
-      const discount = parseDecimal(existingOrder?.discount);
-      const orderTotal = Math.max(0, orderSubtotal - discount);
-
-      await tx
-        .update(orders)
-        .set({
-          subtotal: orderSubtotal.toFixed(2),
-          total: orderTotal.toFixed(2),
-        })
-        .where(eq(orders.id, orderId));
-
-      return item!;
+      return createdItem!;
     });
   }
 
