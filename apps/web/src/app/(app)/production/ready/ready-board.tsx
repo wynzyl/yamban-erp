@@ -79,7 +79,8 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
   };
 
   // Collect all design files from items
-  const designFiles = order.items
+  const items = order.items ?? [];
+  const designFiles = items
     .map((item) => item.designFile)
     .filter((df): df is DesignFileInfo => df !== null);
 
@@ -98,7 +99,7 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
             className="size-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
           {designFiles.length > 1 && (
-            <span className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
+            <span className="absolute bottom-2 right-2 rounded bg-foreground/60 px-2 py-0.5 text-xs text-background">
               +{designFiles.length - 1} more
             </span>
           )}
@@ -125,7 +126,7 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
 
         {/* Items list */}
         <ul className="mt-3 space-y-1 border-l-2 border-border pl-3">
-          {order.items.map((item) => (
+          {items.map((item) => (
             <li key={item.id} className="flex items-baseline justify-between gap-2 text-sm">
               <span className="text-foreground">{item.productName}</span>
               <span className="tabular-nums text-muted-foreground">{item.quantity}</span>
@@ -197,12 +198,12 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
       {/* Lightbox */}
       {showLightbox && lightboxImage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/90"
           onClick={() => setShowLightbox(false)}
         >
           <button
             type="button"
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+            className="absolute right-4 top-4 rounded-full bg-background/10 p-2 text-background transition-colors hover:bg-background/20"
             onClick={() => setShowLightbox(false)}
           >
             <X className="size-6" />

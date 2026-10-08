@@ -6,15 +6,16 @@ import {
   type Paginated,
   type ProductionStage,
 } from '@yamban/shared';
-import { ClipboardList, Download, Plus } from 'lucide-react';
+import { ClipboardList, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Money } from '@/components/domain/money';
 import { PaymentChip, paymentTier } from '@/components/domain/payment-chip';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
-import { Surface } from '@/components/ui/surface';
+import { Surface, SurfaceBody } from '@/components/ui/surface';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -32,13 +33,36 @@ interface OrderRow {
   orderDate: string;
   dueDate: string | null;
   status: OrderStatus;
-  /** Current production stage, if in production */
   productionStage: ProductionStage | null;
   total: string;
   paidAmount: string;
   itemCount: number;
-  /** Days overdue if released/past due with balance */
   daysOverdue?: number;
+}
+
+function computeSummary(orders: OrderRow[]) {
+  let totalReceivable = 0;
+  let overdueAmount = 0;
+  let overdueCount = 0;
+  let paidCount = 0;
+
+  for (const o of orders) {
+    const total = Number(o.total);
+    const paid = Number(o.paidAmount);
+    const balance = total - paid;
+
+    if (balance > 0) {
+      totalReceivable += balance;
+      if (o.daysOverdue && o.daysOverdue > 0) {
+        overdueAmount += balance;
+        overdueCount++;
+      }
+    } else {
+      paidCount++;
+    }
+  }
+
+  return { totalReceivable, overdueAmount, overdueCount, paidCount };
 }
 
 export default async function OrdersPage({
@@ -54,6 +78,9 @@ export default async function OrdersPage({
   const data = await apiFetch<Paginated<OrderRow>>(`/orders?${qs}`);
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
 
+  // Compute summary from current page (for visual context)
+  const summary = computeSummary(data.items);
+
   function getPageUrl(p: number) {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
@@ -67,13 +94,7 @@ export default async function OrdersPage({
 
   return (
     <div className="max-w-7xl">
-      <PageHeader title="Orders">
-        <Button variant="outline" asChild>
-          <Link href="/orders/export">
-            <Download className="size-4" />
-            Export
-          </Link>
-        </Button>
+      <PageHeader title="Orders" count={data.total}>
         <Button asChild>
           <Link href="/orders/new">
             <Plus className="size-4" />
@@ -82,6 +103,51 @@ export default async function OrdersPage({
         </Button>
       </PageHeader>
 
+      {/* Summary Stats */}
+      {data.total > 0 && (
+        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Surface>
+            <SurfaceBody className="py-3">
+              <p className="text-sm text-muted-foreground">Total orders</p>
+              <p className="mt-1 font-display text-2xl font-semibold">{data.total}</p>
+            </SurfaceBody>
+          </Surface>
+          <Surface>
+            <SurfaceBody className="py-3">
+              <p className="text-sm text-muted-foreground">Receivable</p>
+              <p className="mt-1 font-display text-2xl font-semibold">
+                <Money value={summary.totalReceivable} negativeIsProblem={false} />
+              </p>
+            </SurfaceBody>
+          </Surface>
+          <Surface>
+            <SurfaceBody className="py-3">
+              <p className="text-sm text-muted-foreground">Overdue</p>
+              <p className={cn(
+                'mt-1 font-display text-2xl font-semibold',
+                summary.overdueAmount > 0 && 'text-destructive',
+              )}>
+                <Money value={summary.overdueAmount} negativeIsProblem={false} />
+              </p>
+              {summary.overdueCount > 0 && (
+                <p className="mt-1 text-sm text-destructive">
+                  {summary.overdueCount} {summary.overdueCount === 1 ? 'order' : 'orders'}
+                </p>
+              )}
+            </SurfaceBody>
+          </Surface>
+          <Surface>
+            <SurfaceBody className="py-3">
+              <p className="text-sm text-muted-foreground">Paid this page</p>
+              <p className="mt-1 font-display text-2xl font-semibold text-success">
+                {summary.paidCount}
+              </p>
+            </SurfaceBody>
+          </Surface>
+        </div>
+      )}
+
+      {/* Filters */}
       <div className="mt-6">
         <OrderSearch
           defaultSearch={search}
@@ -92,6 +158,7 @@ export default async function OrdersPage({
         />
       </div>
 
+      {/* Orders Table */}
       <Surface className="mt-4 overflow-hidden">
         {data.items.length === 0 ? (
           <EmptyState
@@ -109,14 +176,14 @@ export default async function OrdersPage({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="uppercase text-xs tracking-wide">Order</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide">Customer</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide">Stage</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide">Date</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide">Due</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide text-right">Balance</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide text-right">Total</TableHead>
-                <TableHead className="uppercase text-xs tracking-wide">Payment</TableHead>
+                <TableHead>Order</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Stage</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Due</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+                <TableHead>Payment</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -126,7 +193,6 @@ export default async function OrdersPage({
                 const balance = total - paid;
                 const tier = paymentTier(total, paid, o.daysOverdue ?? 0);
 
-                // Determine balance text color per guideline
                 const balanceColorClass =
                   tier === 'overdue'
                     ? 'text-destructive'
@@ -135,8 +201,7 @@ export default async function OrdersPage({
                       : 'text-foreground';
 
                 return (
-                  <TableRow key={o.id} className="group">
-                    {/* Order number - links to detail */}
+                  <TableRow key={o.id}>
                     <TableCell>
                       <Link
                         href={`/orders/${o.id}`}
@@ -146,9 +211,8 @@ export default async function OrdersPage({
                       </Link>
                     </TableCell>
 
-                    {/* Customer - name as entered, item count below */}
                     <TableCell>
-                      <div className="font-medium text-foreground">
+                      <div className="font-medium">
                         {o.organizationName || `${o.customerFirstName} ${o.customerLastName}`.trim()}
                       </div>
                       <div className="text-sm text-muted-foreground">
@@ -156,55 +220,28 @@ export default async function OrdersPage({
                       </div>
                     </TableCell>
 
-                    {/* Stage - shows specific stage when filtered by IN_PRODUCTION */}
                     <TableCell>
-                      {o.status === 'RELEASED' ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm">
-                          <span className="size-1.5 rounded-full bg-primary" />
-                          <span className="font-medium text-primary">Released</span>
-                        </span>
-                      ) : o.status === 'READY' || o.productionStage === 'PACKAGING' ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm">
-                          <span className="size-1.5 rounded-full bg-primary" />
-                          <span className="font-medium text-primary">Ready</span>
-                        </span>
-                      ) : o.productionStage ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm">
-                          <span className="size-1.5 rounded-full bg-primary" />
-                          <span className="font-medium text-primary">
-                            {status === 'IN_PRODUCTION'
-                              ? PRODUCTION_STAGE_LABELS[o.productionStage]
-                              : 'Production'}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
+                      <StageIndicator order={o} showDetail={status === 'IN_PRODUCTION'} />
                     </TableCell>
 
-                    {/* Order Date */}
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatDate(o.orderDate)}
                     </TableCell>
 
-                    {/* Due Date */}
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {o.dueDate ? formatDate(o.dueDate) : '—'}
                     </TableCell>
 
-                    {/* Balance - heaviest figure, right-aligned */}
                     <TableCell className="text-right">
                       <span className={cn('yb-money text-[17px] font-semibold', balanceColorClass)}>
                         {formatMoney(balance)}
                       </span>
                     </TableCell>
 
-                    {/* Total - secondary, right-aligned */}
                     <TableCell className="text-right">
                       <span className="yb-money text-muted-foreground">{formatMoney(total)}</span>
                     </TableCell>
 
-                    {/* Payment chip */}
                     <TableCell>
                       <PaymentChip total={o.total} paid={o.paidAmount} daysOverdue={o.daysOverdue} />
                     </TableCell>
@@ -216,6 +253,7 @@ export default async function OrdersPage({
         )}
       </Surface>
 
+      {/* Pagination */}
       <div className="mt-4 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {data.total > 0 && <>Page {data.page} of {totalPages}</>}
@@ -224,4 +262,73 @@ export default async function OrdersPage({
       </div>
     </div>
   );
+}
+
+/** Stage indicator extracted for clarity */
+function StageIndicator({
+  order,
+  showDetail,
+}: {
+  order: OrderRow;
+  showDetail: boolean;
+}) {
+  if (order.status === 'RELEASED') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full bg-success" />
+        <span className="font-medium text-success">Released</span>
+      </span>
+    );
+  }
+
+  if (order.status === 'READY' || order.productionStage === 'PACKAGING') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full bg-primary" />
+        <span className="font-medium text-primary">Ready</span>
+      </span>
+    );
+  }
+
+  if (order.productionStage) {
+    const label = showDetail
+      ? PRODUCTION_STAGE_LABELS[order.productionStage]
+      : 'Production';
+
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full bg-primary" />
+        <span className="font-medium text-primary">{label}</span>
+      </span>
+    );
+  }
+
+  if (order.status === 'CONFIRMED') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full bg-muted-foreground" />
+        <span className="text-muted-foreground">Confirmed</span>
+      </span>
+    );
+  }
+
+  if (order.status === 'QUOTATION') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full border border-muted-foreground" />
+        <span className="text-muted-foreground">Quotation</span>
+      </span>
+    );
+  }
+
+  if (order.status === 'CANCELLED') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm">
+        <span className="size-2 rounded-full bg-destructive" />
+        <span className="text-destructive">Cancelled</span>
+      </span>
+    );
+  }
+
+  return <span className="text-muted-foreground">—</span>;
 }

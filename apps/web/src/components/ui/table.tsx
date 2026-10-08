@@ -24,7 +24,10 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
 function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
   return (
     <th
-      className={cn('h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground', className)}
+      className={cn(
+        'h-10 px-3 text-left align-middle text-xs font-medium whitespace-nowrap text-muted-foreground',
+        className,
+      )}
       {...props}
     />
   );

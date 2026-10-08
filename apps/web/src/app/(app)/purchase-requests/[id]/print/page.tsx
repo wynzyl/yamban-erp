@@ -82,7 +82,7 @@ export default async function PrintPurchaseRequestPage({
 
       {/* Supplier */}
       <div className="mb-6">
-        <h2 className="mb-2 text-sm font-semibold uppercase text-gray-600">Supplier</h2>
+        <h2 className="mb-2 text-sm font-semibold uppercase text-black/60">Supplier</h2>
         {pr.supplierName ? (
           <div className="text-sm">
             <p className="font-semibold">{pr.supplierName}</p>
@@ -92,7 +92,7 @@ export default async function PrintPurchaseRequestPage({
             {pr.supplierAddress && <p>{pr.supplierAddress}</p>}
           </div>
         ) : (
-          <p className="text-sm text-gray-500">No supplier assigned</p>
+          <p className="text-sm text-black/50">No supplier assigned</p>
         )}
       </div>
 
@@ -111,14 +111,14 @@ export default async function PrintPurchaseRequestPage({
             const unitSuffix = UNIT_SUFFIX[line.materialUnit];
             const purchaseUnits = Math.ceil(parseFloat(line.purchaseQty) / parseFloat(line.purchaseQuantity));
             return (
-              <tr key={line.id} className="border-b border-gray-300">
+              <tr key={line.id} className="border-b border-black/30">
                 <td className="py-2">
                   {line.materialName}
-                  {line.materialColor && <span className="text-gray-600"> ({line.materialColor})</span>}
+                  {line.materialColor && <span className="text-black/60"> ({line.materialColor})</span>}
                 </td>
                 <td className="py-2 text-right">
                   {purchaseUnits} {line.purchaseUnit}
-                  <span className="ml-1 text-gray-500">
+                  <span className="ml-1 text-black/50">
                     ({formatMeasure(line.purchaseQty, unitSuffix)})
                   </span>
                 </td>
@@ -143,7 +143,7 @@ export default async function PrintPurchaseRequestPage({
       {/* Notes */}
       {pr.notes && (
         <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold uppercase text-gray-600">Notes</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase text-black/60">Notes</h2>
           <p className="whitespace-pre-wrap text-sm">{pr.notes}</p>
         </div>
       )}

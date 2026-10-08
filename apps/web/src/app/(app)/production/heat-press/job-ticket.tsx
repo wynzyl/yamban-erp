@@ -32,7 +32,7 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
               <img
                 src={designImageUrl}
                 alt="Design"
-                className="h-auto w-full border border-gray-300"
+                className="h-auto w-full border border-black/30"
               />
             </div>
           )}
@@ -78,7 +78,7 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
             Total: {quantity} pcs
           </div>
 
-          <div className="mt-2 text-xs text-gray-600">
+          <div className="mt-2 text-xs text-black/60">
             Order: {orderNumber}
           </div>
         </div>

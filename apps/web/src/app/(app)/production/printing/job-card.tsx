@@ -133,12 +133,12 @@ export function JobCard({ job }: JobCardProps) {
       {/* Lightbox */}
       {showLightbox && designImageUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/80"
           onClick={() => setShowLightbox(false)}
         >
           <button
             type="button"
-            className="absolute right-4 top-4 text-white hover:text-gray-300"
+            className="absolute right-4 top-4 text-background hover:text-background/70"
             onClick={() => setShowLightbox(false)}
           >
             <X className="size-8" />
