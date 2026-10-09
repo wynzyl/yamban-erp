@@ -25,7 +25,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <div className="mb-4">
         <Link
           href={`/products/${id}`}

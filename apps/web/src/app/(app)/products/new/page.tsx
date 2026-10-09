@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: 'Add product' };
 
 export default function NewProductPage() {
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <div className="mb-4">
         <Link
           href="/products"

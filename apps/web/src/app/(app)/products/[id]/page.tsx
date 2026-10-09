@@ -19,6 +19,7 @@ import { AddProcessForm } from './add-process-form';
 import { DeleteProcessButton } from './delete-process-button';
 import { DeleteProductButton } from './delete-button';
 import { LaborRatesSection } from './labor-rates-section';
+import { ProductUsage } from './product-usage';
 import { RecipeSection } from './recipe-section';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -117,7 +118,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const availableMachines = machines.filter((m) => !configuredMachineIds.has(m.id));
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-4xl">
       <div className="mb-4">
         <Link
           href="/products"
@@ -236,6 +237,9 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         stages={product.stages}
         defaultRates={defaultLaborRates}
       />
+
+      {/* Usage Stats */}
+      <ProductUsage productId={product.id} productName={product.name} />
     </div>
   );
 }

@@ -13,20 +13,37 @@ import {
 } from '@yamban/shared';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
-import { ProductsService } from './products.service.js';
+import { type ProductListQuery, ProductsService } from './products.service.js';
+
+// Extended query schema for product list
+const productListQuerySchema = listQuerySchema.extend({
+  sortBy: listQuerySchema.shape.search,
+  sortOrder: listQuerySchema.shape.search,
+  status: listQuerySchema.shape.search,
+});
 
 @Controller('products')
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
   @Get()
-  list(@Query(new ZodValidationPipe(listQuerySchema)) query: { page: number; pageSize: number; search?: string }) {
+  list(@Query(new ZodValidationPipe(productListQuerySchema)) query: ProductListQuery) {
     return this.products.list(query);
   }
 
   @Get(':id')
   get(@Param('id') id: string) {
     return this.products.get(id);
+  }
+
+  @Get(':id/usage-stats')
+  getUsageStats(@Param('id', ParseUUIDPipe) id: string) {
+    return this.products.getUsageStats(id);
+  }
+
+  @Get(':id/order-usage')
+  getOrderUsage(@Param('id', ParseUUIDPipe) id: string) {
+    return this.products.getOrderUsage(id);
   }
 
   @Post()

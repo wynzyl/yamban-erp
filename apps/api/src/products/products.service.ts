@@ -3,7 +3,6 @@ import type {
   AddProductProcessData,
   AddRecipeMaterialData,
   CreateProductData,
-  ListQuery,
   Paginated,
   ProductionStage,
   UpdateProductData,
@@ -12,10 +11,10 @@ import type {
   UpdateRecipeMaterialData,
 } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
-import { and, asc, eq, ilike, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, sql, sum, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
-import { machines, materials, productRecipes, products, productSizeProcesses, productStages, recipeMaterials } from '../db/schema/index.js';
+import { customers, machines, materials, orderItems, orders, productRecipes, products, productSizeProcesses, productStages, recipeMaterials } from '../db/schema/index.js';
 
 export interface ProductListRow {
   id: string;
@@ -24,6 +23,34 @@ export interface ProductListRow {
   defaultPrice: string;
   active: boolean;
   createdAt: Date;
+  orderCount: number;
+  totalRevenue: string;
+}
+
+export interface ProductListQuery {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  sortBy?: 'name' | 'price' | 'usage' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+  status?: 'active' | 'inactive';
+}
+
+export interface ProductUsageStats {
+  totalOrders: number;
+  totalRevenue: string;
+  totalQuantitySold: number;
+  lastUsedDate: string | null;
+}
+
+export interface ProductOrderUsageRow {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  orderDate: string;
+  status: string;
+  quantity: number;
+  subtotal: string;
 }
 
 export interface ProductProcessRow {
@@ -69,35 +96,82 @@ export interface ProductDetailRow {
 export class ProductsService {
   constructor(@InjectDb() private readonly db: Database) {}
 
-  async list(q?: ListQuery): Promise<Paginated<ProductListRow>> {
-    const page = q?.page ?? 1;
-    const pageSize = q?.pageSize ?? 20;
+  async list(q: ProductListQuery = {}): Promise<Paginated<ProductListRow>> {
+    const page = q.page ?? 1;
+    const pageSize = q.pageSize ?? 20;
     const conditions: SQL[] = [];
 
-    if (q?.search) {
+    if (q.search) {
       const term = `%${q.search.replace(/[%_\\\\]/g, '\\\\$&')}%`;
       conditions.push(ilike(products.name, term));
     }
 
-    const where = conditions.length ? (conditions.length === 1 ? conditions[0] : undefined) : undefined;
+    // Status filter
+    if (q.status === 'active') {
+      conditions.push(eq(products.active, true));
+    } else if (q.status === 'inactive') {
+      conditions.push(eq(products.active, false));
+    }
 
-    const allProducts = await this.db
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    // Subquery for usage stats per product
+    const usageStatsSubquery = this.db
       .select({
-        id: products.id,
-        name: products.name,
-        description: products.description,
-        defaultPrice: products.defaultPrice,
-        active: products.active,
-        createdAt: products.createdAt,
+        productId: orderItems.productId,
+        orderCount: sql<number>`COUNT(DISTINCT ${orders.id})::int`.as('orderCount'),
+        totalRevenue: sql<string>`COALESCE(SUM(${orderItems.subtotal}), '0')`.as('totalRevenue'),
       })
-      .from(products)
-      .where(where)
-      .orderBy(asc(products.name));
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(sql`${orders.status} NOT IN ('QUOTATION', 'CANCELLED')`)
+      .groupBy(orderItems.productId)
+      .as('usageStats');
 
-    const total = allProducts.length;
-    const paginatedProducts = allProducts.slice((page - 1) * pageSize, page * pageSize);
+    // Determine sort order
+    let orderByClause: SQL;
+    const sortOrder = q.sortOrder === 'desc' ? desc : asc;
+    const oppositeSortOrder = q.sortOrder === 'desc' ? asc : desc;
+    switch (q.sortBy) {
+      case 'price':
+        orderByClause = sql`${sortOrder(products.defaultPrice)}, ${asc(products.name)}`;
+        break;
+      case 'createdAt':
+        orderByClause = sql`${sortOrder(products.createdAt)}, ${asc(products.name)}`;
+        break;
+      case 'usage':
+        orderByClause = sql`${oppositeSortOrder(usageStatsSubquery.orderCount)} NULLS LAST, ${asc(products.name)}`;
+        break;
+      case 'name':
+      default:
+        orderByClause = sql`${sortOrder(products.name)}`;
+        break;
+    }
 
-    return { items: paginatedProducts, page, pageSize, total };
+    const [items, total] = await Promise.all([
+      this.db
+        .select({
+          id: products.id,
+          name: products.name,
+          description: products.description,
+          defaultPrice: products.defaultPrice,
+          active: products.active,
+          createdAt: products.createdAt,
+          orderCount: sql<number>`COALESCE(${usageStatsSubquery.orderCount}, 0)`.as('orderCount'),
+          totalRevenue: sql<string>`COALESCE(${usageStatsSubquery.totalRevenue}, '0')`.as('totalRevenue'),
+        })
+        .from(products)
+        .leftJoin(usageStatsSubquery, eq(usageStatsSubquery.productId, products.id))
+        .where(where)
+        .orderBy(orderByClause)
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+      this.db.$count(
+        this.db.select({ id: products.id }).from(products).where(where).as('p'),
+      ),
+    ]);
+
+    return { items, page, pageSize, total };
   }
 
   async get(id: string): Promise<ProductDetailRow> {
@@ -498,5 +572,96 @@ export class ProductsService {
     if (!existing) throw new NotFoundException('Recipe material not found.');
 
     await this.db.delete(recipeMaterials).where(eq(recipeMaterials.id, recipeMaterialId));
+  }
+
+  /** Get usage stats for a product. */
+  async getUsageStats(productId: string): Promise<ProductUsageStats> {
+    // Verify product exists
+    const [product] = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+
+    if (!product) throw new NotFoundException('Product not found.');
+
+    // Get order totals
+    const statsResult = await this.db
+      .select({
+        totalOrders: sql<number>`COUNT(DISTINCT ${orders.id})::int`,
+        totalRevenue: sql<string>`COALESCE(SUM(${orderItems.subtotal}), '0')`,
+        totalQuantitySold: sql<number>`COALESCE(SUM(${orderItems.quantity}), 0)::int`,
+        lastUsedDate: sql<string | null>`MAX(${orders.orderDate})`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(
+        and(
+          eq(orderItems.productId, productId),
+          sql`${orders.status} NOT IN ('QUOTATION', 'CANCELLED')`,
+        ),
+      );
+
+    return {
+      totalOrders: statsResult[0]?.totalOrders ?? 0,
+      totalRevenue: statsResult[0]?.totalRevenue ?? '0',
+      totalQuantitySold: statsResult[0]?.totalQuantitySold ?? 0,
+      lastUsedDate: statsResult[0]?.lastUsedDate ?? null,
+    };
+  }
+
+  /** Get orders that use a specific product. */
+  async getOrderUsage(productId: string): Promise<ProductOrderUsageRow[]> {
+    // Verify product exists
+    const [product] = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+
+    if (!product) throw new NotFoundException('Product not found.');
+
+    // Aggregate quantity and subtotal per order (a product can appear in multiple line items)
+    const rows = await this.db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        customerFirstName: customers.firstName,
+        customerLastName: customers.lastName,
+        orderDate: orders.orderDate,
+        status: orders.status,
+        quantity: sql<number>`SUM(${orderItems.quantity})::int`.as('quantity'),
+        subtotal: sql<string>`SUM(${orderItems.subtotal})`.as('subtotal'),
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .innerJoin(customers, eq(customers.id, orders.customerId))
+      .where(
+        and(
+          eq(orderItems.productId, productId),
+          sql`${orders.status} NOT IN ('QUOTATION', 'CANCELLED')`,
+        ),
+      )
+      .groupBy(
+        orders.id,
+        orders.orderNumber,
+        customers.firstName,
+        customers.lastName,
+        orders.orderDate,
+        orders.status,
+        orders.createdAt,
+      )
+      .orderBy(desc(orders.orderDate), desc(orders.createdAt))
+      .limit(20);
+
+    return rows.map((r) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      customerName: [r.customerFirstName, r.customerLastName].filter(Boolean).join(' '),
+      orderDate: String(r.orderDate),
+      status: r.status,
+      quantity: r.quantity,
+      subtotal: r.subtotal,
+    }));
   }
 }
