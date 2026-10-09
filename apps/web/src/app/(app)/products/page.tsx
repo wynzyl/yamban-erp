@@ -1,17 +1,15 @@
-import { formatMoney, type Paginated } from '@yamban/shared';
+import { type Paginated } from '@yamban/shared';
 import { Package, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Money } from '@/components/domain/money';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { ProductFilters } from './product-filters';
-import { SortableHeader } from './sortable-header';
+import { ProductsTable } from './products-table';
 
 export const metadata: Metadata = { title: 'Products' };
 
@@ -87,77 +85,7 @@ export default async function ProductsPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  <SortableHeader sortKey="name" currentSort={sortBy} currentOrder={sortOrder}>
-                    Name
-                  </SortableHeader>
-                </TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">
-                  <SortableHeader sortKey="price" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
-                    Price
-                  </SortableHeader>
-                </TableHead>
-                <TableHead className="text-right">
-                  <SortableHeader sortKey="usage" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
-                    Usage
-                  </SortableHeader>
-                </TableHead>
-                <TableHead className="text-center">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((p) => {
-                const hasRevenue = parseFloat(p.totalRevenue) > 0;
-                return (
-                  <TableRow key={p.id} className="group">
-                    <TableCell>
-                      <Link
-                        href={`/products/${p.id}`}
-                        className="font-medium text-foreground hover:text-primary hover:underline"
-                      >
-                        {p.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {p.description ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Money value={p.defaultPrice} />
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      {p.orderCount > 0 ? (
-                        <div>
-                          <span className="text-muted-foreground">{p.orderCount} order{p.orderCount !== 1 ? 's' : ''}</span>
-                          {hasRevenue && (
-                            <div className="yb-money text-sm text-muted-foreground">
-                              {formatMoney(p.totalRevenue)}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={`inline-flex h-6 items-center rounded-control px-2 text-xs font-medium ${
-                          p.active
-                            ? 'bg-success/10 text-success'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {p.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <ProductsTable data={data.items} sortBy={sortBy} sortOrder={sortOrder} />
         )}
       </Surface>
 

@@ -1,9 +1,6 @@
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
-  formatDate,
-  formatMoney,
-  PAYMENT_METHOD_LABELS,
   type ExpenseCategory,
   type PaymentMethod,
 } from '@yamban/shared';
@@ -16,16 +13,9 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { ExpenseFilters } from './expense-filters';
+import { ExpensesTable } from './expenses-table';
 
 export const metadata: Metadata = { title: 'Expenses' };
 
@@ -169,43 +159,7 @@ export default async function ExpensesPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((e) => (
-                <TableRow key={e.id} className="group">
-                  <TableCell className="whitespace-nowrap">
-                    <Link
-                      href={`/expenses/${e.id}`}
-                      className="font-medium text-foreground hover:text-primary hover:underline"
-                    >
-                      {formatDate(e.expenseDate)}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="max-w-[200px] truncate">{e.description}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {EXPENSE_CATEGORY_LABELS[e.category]}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {e.supplierName ?? '—'}
-                  </TableCell>
-                  <TableCell>{PAYMENT_METHOD_LABELS[e.paymentMethod]}</TableCell>
-                  <TableCell className="text-right">
-                    <Money value={e.amount} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <ExpensesTable data={data.items} />
         )}
       </Surface>
 

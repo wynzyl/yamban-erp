@@ -1,17 +1,15 @@
-import { formatDate, formatMobile, formatMoney, type Paginated } from '@yamban/shared';
+import { type Paginated } from '@yamban/shared';
 import { Plus, Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CustomerAvatar } from '@/components/domain/customer-avatar';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { CustomerFilters } from './customer-filters';
-import { SortableHeader } from './sortable-header';
+import { CustomersTable } from './customers-table';
 
 export const metadata: Metadata = { title: 'Customers' };
 
@@ -88,76 +86,7 @@ export default async function CustomersPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12" />
-                <TableHead>
-                  <SortableHeader sortKey="name" currentSort={sortBy} currentOrder={sortOrder}>
-                    Name
-                  </SortableHeader>
-                </TableHead>
-                <TableHead>Organisation</TableHead>
-                <TableHead>Mobile</TableHead>
-                <TableHead>
-                  <SortableHeader sortKey="location" currentSort={sortBy} currentOrder={sortOrder}>
-                    Location
-                  </SortableHeader>
-                </TableHead>
-                <TableHead className="text-right">
-                  <SortableHeader sortKey="balance" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
-                    Account
-                  </SortableHeader>
-                </TableHead>
-                <TableHead className="text-right">
-                  <SortableHeader sortKey="createdAt" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
-                    Added
-                  </SortableHeader>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((c) => {
-                const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ');
-                const hasBalance = parseFloat(c.outstandingBalance) > 0;
-                return (
-                  <TableRow key={c.id} className="group">
-                    <TableCell className="pr-0">
-                      <CustomerAvatar firstName={c.firstName} lastName={c.lastName} size="sm" />
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/customers/${c.id}`}
-                        className="font-medium text-foreground hover:text-primary hover:underline"
-                      >
-                        {fullName}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{c.organizationName ?? '—'}</TableCell>
-                    <TableCell className="whitespace-nowrap">{c.mobile ? formatMobile(c.mobile) : '—'}</TableCell>
-                    <TableCell className="text-muted-foreground">{c.municipality ?? '—'}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      {c.orderCount > 0 ? (
-                        <div>
-                          <span className="text-muted-foreground">{c.orderCount} order{c.orderCount !== 1 ? 's' : ''}</span>
-                          {hasBalance && (
-                            <div className="yb-money text-sm font-medium text-partial-text">
-                              {formatMoney(c.outstandingBalance)} due
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-right text-muted-foreground">
-                      {formatDate(c.createdAt)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <CustomersTable data={data.items} sortBy={sortBy} sortOrder={sortOrder} />
         )}
       </Surface>
 

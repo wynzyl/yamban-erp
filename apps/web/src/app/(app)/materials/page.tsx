@@ -1,4 +1,4 @@
-import { formatMeasure, type Paginated, MATERIAL_CATEGORY_LABELS, UNIT_SUFFIX, type StockUnit } from '@yamban/shared';
+import { type Paginated, type StockUnit } from '@yamban/shared';
 import { Package, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -7,10 +7,9 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { MaterialSearch } from './material-search';
-import { StockBadge } from './stock-badge';
+import { MaterialsTable } from './materials-table';
 
 export const metadata: Metadata = { title: 'Materials' };
 
@@ -72,46 +71,7 @@ export default async function MaterialsPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Stock</TableHead>
-                <TableHead>Supplier</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((m) => {
-                const unitSuffix = UNIT_SUFFIX[m.unit];
-                const stock = parseFloat(m.stockOnHand);
-                const reorder = parseFloat(m.reorderLevel);
-                return (
-                  <TableRow key={m.id} className="group">
-                    <TableCell>
-                      <Link
-                        href={`/materials/${m.id}`}
-                        className="font-medium text-foreground hover:text-primary hover:underline"
-                      >
-                        {m.name}
-                        {m.color && <span className="ml-1 text-muted-foreground">({m.color})</span>}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {MATERIAL_CATEGORY_LABELS[m.category as keyof typeof MATERIAL_CATEGORY_LABELS] ?? m.category}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="tabular-nums">{formatMeasure(m.stockOnHand, unitSuffix)}</span>
-                        <StockBadge stock={stock} reorderLevel={reorder} />
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{m.supplierName ?? '—'}</TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <MaterialsTable data={data.items} />
         )}
       </Surface>
 

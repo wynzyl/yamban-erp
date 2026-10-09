@@ -1,7 +1,4 @@
 import {
-  formatDate,
-  formatMoney,
-  PRODUCTION_STAGE_LABELS,
   type OrderStatus,
   type Paginated,
   type ProductionStage,
@@ -10,16 +7,15 @@ import { ClipboardList, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Money } from '@/components/domain/money';
-import { PaymentChip, paymentTier } from '@/components/domain/payment-chip';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface, SurfaceBody } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { OrderSearch } from './order-search';
+import { OrdersTable } from './orders-table';
 
 export const metadata: Metadata = { title: 'Orders' };
 
@@ -173,83 +169,7 @@ export default async function OrdersPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Order</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Stage</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Due</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead>Payment</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((o) => {
-                const total = Number(o.total);
-                const paid = Number(o.paidAmount);
-                const balance = total - paid;
-                const tier = paymentTier(total, paid, o.daysOverdue ?? 0);
-
-                const balanceColorClass =
-                  tier === 'overdue'
-                    ? 'text-destructive'
-                    : balance > 0
-                      ? 'text-partial-text'
-                      : 'text-foreground';
-
-                return (
-                  <TableRow key={o.id}>
-                    <TableCell>
-                      <Link
-                        href={`/orders/${o.id}`}
-                        className="font-display text-[15px] font-semibold text-primary hover:underline"
-                      >
-                        {o.orderNumber}
-                      </Link>
-                    </TableCell>
-
-                    <TableCell>
-                      <div className="font-medium">
-                        {o.organizationName || `${o.customerFirstName} ${o.customerLastName}`.trim()}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {o.itemCount} {o.itemCount === 1 ? 'item' : 'items'}
-                      </div>
-                    </TableCell>
-
-                    <TableCell>
-                      <StageIndicator order={o} showDetail={status === 'IN_PRODUCTION'} />
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {formatDate(o.orderDate)}
-                    </TableCell>
-
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {o.dueDate ? formatDate(o.dueDate) : '—'}
-                    </TableCell>
-
-                    <TableCell className="text-right">
-                      <span className={cn('yb-money text-[17px] font-semibold', balanceColorClass)}>
-                        {formatMoney(balance)}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="text-right">
-                      <span className="yb-money text-muted-foreground">{formatMoney(total)}</span>
-                    </TableCell>
-
-                    <TableCell>
-                      <PaymentChip total={o.total} paid={o.paidAmount} daysOverdue={o.daysOverdue} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <OrdersTable data={data.items} statusFilter={status} />
         )}
       </Surface>
 
@@ -262,73 +182,4 @@ export default async function OrdersPage({
       </div>
     </div>
   );
-}
-
-/** Stage indicator extracted for clarity */
-function StageIndicator({
-  order,
-  showDetail,
-}: {
-  order: OrderRow;
-  showDetail: boolean;
-}) {
-  if (order.status === 'RELEASED') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full bg-success" />
-        <span className="font-medium text-success">Released</span>
-      </span>
-    );
-  }
-
-  if (order.status === 'READY' || order.productionStage === 'PACKAGING') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full bg-primary" />
-        <span className="font-medium text-primary">Ready</span>
-      </span>
-    );
-  }
-
-  if (order.productionStage) {
-    const label = showDetail
-      ? PRODUCTION_STAGE_LABELS[order.productionStage]
-      : 'Production';
-
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full bg-primary" />
-        <span className="font-medium text-primary">{label}</span>
-      </span>
-    );
-  }
-
-  if (order.status === 'CONFIRMED') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full bg-muted-foreground" />
-        <span className="text-muted-foreground">Confirmed</span>
-      </span>
-    );
-  }
-
-  if (order.status === 'QUOTATION') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full border border-muted-foreground" />
-        <span className="text-muted-foreground">Quotation</span>
-      </span>
-    );
-  }
-
-  if (order.status === 'CANCELLED') {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-sm">
-        <span className="size-2 rounded-full bg-destructive" />
-        <span className="text-destructive">Cancelled</span>
-      </span>
-    );
-  }
-
-  return <span className="text-muted-foreground">—</span>;
 }

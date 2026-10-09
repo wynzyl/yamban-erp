@@ -1,4 +1,4 @@
-import { formatMobile, type Paginated } from '@yamban/shared';
+import { type Paginated } from '@yamban/shared';
 import { Plus, Truck } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -7,9 +7,9 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { SupplierSearch } from './supplier-search';
+import { SuppliersTable } from './suppliers-table';
 
 export const metadata: Metadata = { title: 'Suppliers' };
 
@@ -68,49 +68,7 @@ export default async function SuppliersPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Contact person</TableHead>
-                <TableHead>Mobile</TableHead>
-                <TableHead>Email</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((s) => (
-                <TableRow key={s.id} className="group">
-                  <TableCell>
-                    <Link
-                      href={`/suppliers/${s.id}`}
-                      className="font-medium text-foreground hover:text-primary hover:underline"
-                    >
-                      {s.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{s.contactPerson ?? '—'}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {s.mobile ? (
-                      <a href={`tel:${s.mobile}`} className="hover:text-primary hover:underline">
-                        {formatMobile(s.mobile)}
-                      </a>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {s.email ? (
-                      <a href={`mailto:${s.email}`} className="hover:text-primary hover:underline">
-                        {s.email}
-                      </a>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <SuppliersTable data={data.items} />
         )}
       </Surface>
 

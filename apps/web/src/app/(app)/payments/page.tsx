@@ -1,16 +1,15 @@
-import { formatDate, formatMoney, PAYMENT_METHOD_LABELS, type Paginated, type PaymentMethod } from '@yamban/shared';
+import { type Paginated, type PaymentMethod } from '@yamban/shared';
 import { CreditCard, Plus } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Money } from '@/components/domain/money';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { apiFetch } from '@/lib/api';
 import { PaymentSearch } from './payment-search';
+import { PaymentsTable } from './payments-table';
 
 export const metadata: Metadata = { title: 'Payments' };
 
@@ -74,49 +73,7 @@ export default async function PaymentsPage({
             )}
           </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Order</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.items.map((p) => {
-                const fullName = [p.customerFirstName, p.customerLastName].filter(Boolean).join(' ');
-                return (
-                  <TableRow key={p.id} className="group">
-                    <TableCell className="whitespace-nowrap">
-                      <Link
-                        href={`/payments/${p.id}`}
-                        className="font-medium text-foreground hover:text-primary hover:underline"
-                      >
-                        {formatDate(p.paymentDate)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/orders/${p.orderId}`}
-                        className="text-primary hover:underline"
-                      >
-                        {p.orderNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{fullName}</TableCell>
-                    <TableCell>{PAYMENT_METHOD_LABELS[p.method]}</TableCell>
-                    <TableCell className="text-muted-foreground">{p.reference ?? '—'}</TableCell>
-                    <TableCell className="text-right">
-                      <Money value={p.amount} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <PaymentsTable data={data.items} />
         )}
       </Surface>
 
