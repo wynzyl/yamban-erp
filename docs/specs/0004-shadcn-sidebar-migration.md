@@ -1,7 +1,7 @@
 # 0004. Migrate sidebar to shadcn sidebar primitives
 
 **Date**: 2026-10-09
-**Status**: In Progress
+**Status**: Done
 
 ## Summary
 
