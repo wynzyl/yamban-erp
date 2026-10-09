@@ -83,18 +83,19 @@ function OrderCard({ order }: { order: ReadyOrderRow }) {
   const designFiles = items
     .map((item) => item.designFile)
     .filter((df): df is DesignFileInfo => df !== null);
+  const firstDesign = designFiles[0];
 
   return (
     <div className="rounded-surface border border-border bg-card overflow-hidden">
       {/* Design thumbnail - single image */}
-      {designFiles.length > 0 && (
+      {firstDesign && (
         <button
           type="button"
           className="group relative aspect-[16/9] w-full overflow-hidden bg-muted"
-          onClick={() => openLightbox(designFiles[0].storageKey)}
+          onClick={() => openLightbox(firstDesign.storageKey)}
         >
           <img
-            src={`/api/files/${designFiles[0].storageKey}`}
+            src={`/api/files/${firstDesign.storageKey}`}
             alt="Design"
             className="size-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
