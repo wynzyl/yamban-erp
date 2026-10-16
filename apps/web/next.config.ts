@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
     return [{ source: '/api/:path*', destination: `${apiUrl}/api/:path*` }];
   },
   poweredByHeader: false,
+  // Standalone output for Docker deployment: bundles node_modules into .next/standalone
+  output: 'standalone',
 };
 
 export default nextConfig;

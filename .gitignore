@@ -12,3 +12,6 @@ cookies.txt
 nul
 apps/api/uploads/*
 !apps/api/uploads/.gitkeep
+
+# Production environment (contains secrets)
+.env.production
