@@ -1,1 +1,0 @@
-ALTER TABLE "suppliers" ADD COLUMN "bank_details" text;
