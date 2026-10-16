@@ -1,4 +1,4 @@
-import { formatDate, formatMoney, ORDER_STATUS_LABELS, PRODUCTION_STAGE_LABELS, SIZE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
+import { formatDate, formatMoney, formatSize, sortSizes, sortSizeStrings, ORDER_STATUS_LABELS, PRODUCTION_STAGE_LABELS, type EditPermissions, type OrderStatus, type PaymentMethod, type ProductionStage } from '@yamban/shared';
 import { ArrowLeft, Calendar, Edit, Package, Palette, Plus, User, Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -39,6 +39,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+  shortSize: string | null;
 }
 
 interface OrderItem {
@@ -264,12 +265,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   </div>
                   {item.sizes.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1.5 pl-6">
-                      {item.sizes.map((s) => (
+                      {sortSizes(item.sizes).map((s) => (
                         <span
                           key={s.id}
                           className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
                         >
-                          {s.size}: {s.quantity} @ <span className="yb-money">{formatMoney(s.unitPrice)}</span>
+                          {formatSize(s.size)}: {s.quantity} @ <span className="yb-money">{formatMoney(s.unitPrice)}</span>
                         </span>
                       ))}
                     </div>
@@ -280,12 +281,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                         Roster ({item.roster.length} player{item.roster.length !== 1 ? 's' : ''})
                       </summary>
                       <div className="mt-1 space-y-1">
-                        {/* Group roster by unique sizes */}
-                        {Array.from(new Set(item.roster.map((r) => r.size))).map((size) => {
+                        {/* Group roster by unique sizes, sorted */}
+                        {sortSizeStrings(Array.from(new Set(item.roster.map((r) => r.size)))).map((size) => {
                           const playersInSize = item.roster.filter((r) => r.size === size);
                           return (
                             <div key={size} className="text-xs">
-                              <span className="font-medium text-muted-foreground">{SIZE_LABELS[size as keyof typeof SIZE_LABELS] || size}:</span>
+                              <span className="font-medium text-muted-foreground">{formatSize(size)}:</span>
                               <span className="ml-1 text-foreground">
                                 {playersInSize.map((r, idx) => (
                                   <span key={r.id}>

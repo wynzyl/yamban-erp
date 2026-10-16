@@ -35,7 +35,7 @@ export const DESIGN_APPROVAL_STATUSES = [
 export type DesignApprovalStatus = (typeof DESIGN_APPROVAL_STATUSES)[number];
 
 /** Fixed display order (guideline: Sizes). ONE_SIZE is for mugs and other unsized items. */
-export const GARMENT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', 'ONE_SIZE'] as const;
+export const GARMENT_SIZES = ['#10', '#12', '#14', '#16', '#18', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'ONE_SIZE'] as const;
 export type GarmentSize = (typeof GARMENT_SIZES)[number];
 
 export const STOCK_UNITS = ['YARD', 'METER', 'ML', 'GRAM', 'PIECE'] as const;
@@ -90,6 +90,11 @@ export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, string> = {
 };
 
 export const SIZE_LABELS: Record<GarmentSize, string> = {
+  '#10': '#10',
+  '#12': '#12',
+  '#14': '#14',
+  '#16': '#16',
+  '#18': '#18',
   XS: 'XS',
   S: 'S',
   M: 'M',
@@ -97,6 +102,8 @@ export const SIZE_LABELS: Record<GarmentSize, string> = {
   XL: 'XL',
   '2XL': '2XL',
   '3XL': '3XL',
+  '4XL': '4XL',
+  '5XL': '5XL',
   ONE_SIZE: 'One size',
 };
 

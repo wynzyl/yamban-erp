@@ -64,6 +64,20 @@
       "when": 1791356145911,
       "tag": "0008_add-expense-updated-at",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792133826706,
+      "tag": "0009_add-short-size-to-roster",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792135310884,
+      "tag": "0010_add-roster-sizes",
+      "breakpoints": true
     }
   ]
 }

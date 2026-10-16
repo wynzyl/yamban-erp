@@ -1,6 +1,6 @@
 'use client';
 
-import { formatDate, type JobStatus } from '@yamban/shared';
+import { formatDate, formatSize, sortSizes, sortSizeStrings, type JobStatus } from '@yamban/shared';
 import { Calendar, Check, Image as ImageIcon, X } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -11,6 +11,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+  shortSize: string | null;
 }
 
 interface DesignFileInfo {
@@ -105,12 +106,12 @@ function JobCard({ job }: { job: StageJobRow }) {
           {/* Size breakdown */}
           {job.sizes.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {job.sizes.map((s) => (
+              {sortSizes(job.sizes).map((s) => (
                 <span
                   key={s.size}
                   className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
                 >
-                  {s.size}: {s.quantity}
+                  {formatSize(s.size)}: {s.quantity}
                 </span>
               ))}
             </div>
@@ -126,14 +127,14 @@ function JobCard({ job }: { job: StageJobRow }) {
                 {(() => {
                   // Get unique sizes from roster entries
                   const rosterSizes = [...new Set(job.roster.map((r) => r.size))];
-                  // Use roster sizes for grouping (handles ONE_SIZE mismatch)
-                  const sizesToShow = rosterSizes.length > 0 ? rosterSizes : job.sizes.map((s) => s.size);
+                  // Use roster sizes for grouping (handles ONE_SIZE mismatch), sorted
+                  const sizesToShow = sortSizeStrings(rosterSizes.length > 0 ? rosterSizes : job.sizes.map((s) => s.size));
                   return sizesToShow.map((size) => {
                     const playersInSize = job.roster.filter((r) => r.size === size);
                     if (playersInSize.length === 0) return null;
                     return (
                       <div key={size} className="text-xs">
-                        <div className="font-medium text-muted-foreground">{size}</div>
+                        <div className="font-medium text-muted-foreground">{formatSize(size)}</div>
                         <div className="mt-0.5 space-y-0.5 pl-2">
                           {playersInSize.map((r, idx) => (
                             <div key={idx} className="text-foreground">

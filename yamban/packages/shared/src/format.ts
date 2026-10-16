@@ -69,3 +69,35 @@ export function normalizeMobile(raw: string): string | null {
   const local = digits.startsWith('63') ? digits.slice(2) : digits.replace(/^0/, '');
   return /^9\d{9}$/.test(local) ? `+63${local}` : null;
 }
+
+import { GARMENT_SIZES, SIZE_LABELS, type GarmentSize } from './enums.js';
+
+/** Format a size enum value to its display label (e.g. "ONE_SIZE" → "One size"). */
+export function formatSize(size: string): string {
+  return SIZE_LABELS[size as GarmentSize] ?? size;
+}
+
+/** Sort sizes according to GARMENT_SIZES order. Unknown sizes go to the end. */
+export function sortSizes<T extends { size: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const aIdx = GARMENT_SIZES.indexOf(a.size as GarmentSize);
+    const bIdx = GARMENT_SIZES.indexOf(b.size as GarmentSize);
+    // Unknown sizes (-1) go to the end
+    if (aIdx === -1 && bIdx === -1) return 0;
+    if (aIdx === -1) return 1;
+    if (bIdx === -1) return -1;
+    return aIdx - bIdx;
+  });
+}
+
+/** Sort size strings according to GARMENT_SIZES order. Unknown sizes go to the end. */
+export function sortSizeStrings(sizes: string[]): string[] {
+  return [...sizes].sort((a, b) => {
+    const aIdx = GARMENT_SIZES.indexOf(a as GarmentSize);
+    const bIdx = GARMENT_SIZES.indexOf(b as GarmentSize);
+    if (aIdx === -1 && bIdx === -1) return 0;
+    if (aIdx === -1) return 1;
+    if (bIdx === -1) return -1;
+    return aIdx - bIdx;
+  });
+}

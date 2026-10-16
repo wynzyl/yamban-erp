@@ -1,11 +1,13 @@
 'use client';
 
+import { formatSize, sortSizes, sortSizeStrings } from '@yamban/shared';
 import { forwardRef } from 'react';
 
 interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+  shortSize: string | null;
 }
 
 interface JobTicketProps {
@@ -40,9 +42,9 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
           {/* Size breakdown */}
           {sizes.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-2">
-              {sizes.map((s) => (
+              {sortSizes(sizes).map((s) => (
                 <span key={s.size} className="font-medium">
-                  {s.size}:{s.quantity}
+                  {formatSize(s.size)}:{s.quantity}
                 </span>
               ))}
             </div>
@@ -54,13 +56,13 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
           {roster.length > 0 && (
             <div className="mb-2 border-t border-black pt-2">
               {(() => {
-                // Get unique sizes from roster entries (handles ONE_SIZE mismatch)
-                const rosterSizes = [...new Set(roster.map((r) => r.size))];
+                // Get unique sizes from roster entries (handles ONE_SIZE mismatch), sorted
+                const rosterSizes = sortSizeStrings([...new Set(roster.map((r) => r.size))]);
                 return rosterSizes.map((size) => {
                   const playersInSize = roster.filter((r) => r.size === size);
                   return (
                     <div key={size} className="mb-1">
-                      <div className="font-bold">{size}</div>
+                      <div className="font-bold">{formatSize(size)}</div>
                       {playersInSize.map((r, idx) => (
                         <div key={idx} className="pl-2">
                           {r.jerseyNumber && `#${r.jerseyNumber} `}
