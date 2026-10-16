@@ -1,17 +1,30 @@
-node_modules
-dist
-.next
-.turbo
-coverage
-*.tsbuildinfo
-.env
-.env.*.local
-.DS_Store
-next-env.d.ts
-cookies.txt
-nul
-apps/api/uploads/*
-!apps/api/uploads/.gitkeep
+# Dependencies
+node_modules/
 
-# Production environment (contains secrets)
+# Environment
+.env
+.env.local
 .env.production
+
+# Build outputs
+dist/
+.next/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Logs
+*.log
+.playwright-mcp/
+
+# Lock files at root (using pnpm in yamban)
+package-lock.json
+
+# MCP config (local)
+.mcp.json

@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: yamban-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yamban
+      POSTGRES_PASSWORD: yamban
+      POSTGRES_DB: yamban
+      TZ: Asia/Manila
+      PGTZ: Asia/Manila
+    ports:
+      - "5555:5432"
+    volumes:
+      - yamban-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yamban -d yamban"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  yamban-pgdata:

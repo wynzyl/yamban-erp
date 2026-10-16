@@ -1,0 +1,107 @@
+# Yamban ERP: Production Docker Compose
+# Run with: docker compose -f docker-compose.prod.yml up -d
+#
+# Before first run:
+# 1. Copy .env.production.example to .env.production
+# 2. Edit .env.production with your secrets
+# 3. Build images: docker compose -f docker-compose.prod.yml build
+# 4. Start: docker compose -f docker-compose.prod.yml up -d
+# 5. Run migrations: docker compose -f docker-compose.prod.yml exec api pnpm db:migrate
+# 6. Seed owner account: docker compose -f docker-compose.prod.yml exec api pnpm db:seed
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: yamban-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yamban
+      POSTGRES_PASSWORD: yamban
+      POSTGRES_DB: yamban
+      TZ: Asia/Manila
+      PGTZ: Asia/Manila
+    volumes:
+      - yamban-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yamban -d yamban"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - yamban
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: yamban-api
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+    volumes:
+      - yamban-uploads:/app/apps/api/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - yamban
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        API_INTERNAL_URL: http://api:4000
+    container_name: yamban-web
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - yamban
+
+  nginx:
+    image: nginx:alpine
+    container_name: yamban-nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - yamban
+
+networks:
+  yamban:
+    driver: bridge
+
+volumes:
+  yamban-pgdata:
+  yamban-uploads:

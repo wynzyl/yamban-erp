@@ -1,0 +1,17 @@
+node_modules
+dist
+.next
+.turbo
+coverage
+*.tsbuildinfo
+.env
+.env.*.local
+.DS_Store
+next-env.d.ts
+cookies.txt
+nul
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+
+# Production environment (contains secrets)
+.env.production

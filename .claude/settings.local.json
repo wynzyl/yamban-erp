@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:docs.nestjs.com)",
+      "WebSearch",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "Bash(start \"\" \"e:\\\\Projects\\\\Nest-ERP\\\\yamban\\\\apps\\\\web\\\\docs\\\\UI\\\\prototypes\\\\order-list.html\")",
+      "Bash(start \"\" \"e:\\\\Projects\\\\Nest-ERP\\\\yamban\\\\apps\\\\web\\\\docs\\\\UI\\\\prototypes\\\\tape-gauge.html\")",
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(dir:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/load-handoff.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
