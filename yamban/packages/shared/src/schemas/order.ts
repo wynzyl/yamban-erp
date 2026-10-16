@@ -21,6 +21,7 @@ export const rosterEntrySchema = z.object({
   playerName: z.string().trim().min(1, 'Enter a name.').max(100),
   jerseyNumber: optionalText(10),
   size: z.enum(GARMENT_SIZES, { message: 'Select a size.' }),
+  shortSize: z.enum(GARMENT_SIZES).optional().nullable(),
 });
 export type RosterEntryInput = z.input<typeof rosterEntrySchema>;
 

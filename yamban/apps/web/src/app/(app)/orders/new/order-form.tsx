@@ -36,6 +36,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string;
   size: GarmentSize;
+  shortSize: GarmentSize | null;
 }
 
 interface OrderItem {
@@ -139,7 +140,7 @@ export function OrderForm() {
         if (i !== itemIndex) return item;
         return {
           ...item,
-          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize }],
+          roster: [...item.roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize, shortSize: null }],
           rosterExpanded: true,
         };
       }),

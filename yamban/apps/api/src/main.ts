@@ -65,7 +65,8 @@ async function bootstrap(): Promise<void> {
   );
 
   // Set up MCP server
-  mcp.setHttpAdapter(app.getHttpAdapter());
+  // Cast needed due to type definition mismatch between @nestjs packages
+  mcp.setHttpAdapter(app.getHttpAdapter() as Parameters<typeof mcp.setHttpAdapter>[0]);
   app.connectMicroservice({ strategy: mcp });
   await app.startAllMicroservices();
 

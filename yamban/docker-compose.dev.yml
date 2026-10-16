@@ -1,0 +1,116 @@
+# Yamban ERP: Development Docker Compose with Watch Mode
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build --watch
+#
+# This runs the full stack with hot reload:
+# - PostgreSQL on port 5555
+# - API on port 4010 (NestJS with hot reload)
+# - Web on port 3010 (Next.js with hot reload)
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: yamban-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yamban
+      POSTGRES_PASSWORD: yamban
+      POSTGRES_DB: yamban
+      TZ: Asia/Manila
+      PGTZ: Asia/Manila
+    ports:
+      - "5555:5432"
+    volumes:
+      - yamban-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yamban -d yamban"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - yamban
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api.dev
+    container_name: yamban-api
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://yamban:yamban@postgres:5432/yamban
+      JWT_ACCESS_SECRET: $JWT_ACCESS_SECRET
+      ACCESS_TOKEN_TTL_SECONDS: 900
+      REFRESH_TOKEN_TTL_DAYS: 14
+      WEB_ORIGIN: http://localhost:3010
+      COOKIE_SECURE: "false"
+      API_PORT: 4000
+    ports:
+      - "4010:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - yamban
+    develop:
+      watch:
+        # Sync API source files - NestJS will hot reload
+        - path: ./apps/api/src
+          target: /app/apps/api/src
+          action: sync
+        # Sync shared package source - rebuild shared on change
+        - path: ./packages/shared/src
+          target: /app/packages/shared/src
+          action: sync+restart
+        # Rebuild on dependency changes
+        - path: ./apps/api/package.json
+          target: /app/apps/api/package.json
+          action: rebuild
+        - path: ./packages/shared/package.json
+          target: /app/packages/shared/package.json
+          action: rebuild
+        - path: ./pnpm-lock.yaml
+          target: /app/pnpm-lock.yaml
+          action: rebuild
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.dev
+    container_name: yamban-web
+    environment:
+      NODE_ENV: development
+      API_INTERNAL_URL: http://api:4000
+    ports:
+      - "3010:3000"
+    depends_on:
+      - api
+    networks:
+      - yamban
+    develop:
+      watch:
+        # Sync Web source files - Next.js will hot reload
+        - path: ./apps/web/src
+          target: /app/apps/web/src
+          action: sync
+        # Sync shared package source - rebuild shared on change
+        - path: ./packages/shared/src
+          target: /app/packages/shared/src
+          action: sync+restart
+        # Rebuild on dependency changes
+        - path: ./apps/web/package.json
+          target: /app/apps/web/package.json
+          action: rebuild
+        - path: ./packages/shared/package.json
+          target: /app/packages/shared/package.json
+          action: rebuild
+        - path: ./pnpm-lock.yaml
+          target: /app/pnpm-lock.yaml
+          action: rebuild
+
+networks:
+  yamban:
+    driver: bridge
+
+volumes:
+  yamban-pgdata:

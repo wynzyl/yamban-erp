@@ -7,6 +7,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: string;
+  shortSize: string | null;
 }
 
 interface DesignFileInfo {

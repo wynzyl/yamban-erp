@@ -37,6 +37,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: GarmentSize;
+  shortSize: GarmentSize | null;
 }
 
 interface OrderItem {

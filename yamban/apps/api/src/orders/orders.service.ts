@@ -349,7 +349,7 @@ export class OrdersService {
       productId: string;
       description?: string | null;
       sizes: { size: GarmentSize; quantity: number; unitPrice: string }[];
-      roster?: { playerName: string; jerseyNumber?: string | null; size: GarmentSize }[];
+      roster?: { playerName: string; jerseyNumber?: string | null; size: GarmentSize; shortSize?: GarmentSize | null }[];
     },
   ): Promise<string> {
     // Calculate item totals
@@ -389,6 +389,7 @@ export class OrdersService {
         playerName: r.playerName,
         jerseyNumber: r.jerseyNumber || null,
         size: r.size,
+        shortSize: r.shortSize || null,
       }));
       await tx.insert(orderRoster).values(rosterInserts);
     }
@@ -1095,6 +1096,7 @@ export class OrdersService {
               playerName: r.playerName,
               jerseyNumber: r.jerseyNumber || null,
               size: r.size,
+              shortSize: r.shortSize || null,
             }));
             await tx.insert(orderRoster).values(rosterInserts);
           }
@@ -1150,6 +1152,7 @@ export class OrdersService {
           playerName: entry.playerName,
           jerseyNumber: entry.jerseyNumber || null,
           size: entry.size,
+          shortSize: entry.shortSize || null,
         }));
         await tx.insert(orderRoster).values(rosterInserts);
       }

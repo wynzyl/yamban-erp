@@ -6,9 +6,9 @@ import {
   updateRosterSchema,
   type GarmentSize,
 } from '@yamban/shared';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { FileSpreadsheet, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +20,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Surface } from '@/components/ui/surface';
+import { mapRowsToRoster, toEditableRoster, type ParsedRosterEntry } from '@/lib/roster-import';
+import { parseSpreadsheetFile } from '@/lib/spreadsheet';
+import { RosterImportPreview } from './roster-import-preview';
 
 interface OrderItemSize {
   id: string;
@@ -36,6 +39,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string | null;
   size: GarmentSize;
+  shortSize: GarmentSize | null;
 }
 
 interface OrderItem {
@@ -58,6 +62,7 @@ interface EditableRosterEntry {
   playerName: string;
   jerseyNumber: string;
   size: GarmentSize;
+  shortSize: GarmentSize | null;
 }
 
 export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
@@ -70,14 +75,54 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
       playerName: r.playerName,
       jerseyNumber: r.jerseyNumber ?? '',
       size: r.size,
+      shortSize: r.shortSize,
     })),
   );
 
+  // File import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importPreviewOpen, setImportPreviewOpen] = useState(false);
+  const [importEntries, setImportEntries] = useState<ParsedRosterEntry[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+
   const availableSizes = item.sizes.filter((s) => s.quantity > 0);
+  const defaultSize: GarmentSize = availableSizes[0]?.size ?? 'M';
 
   function addEntry() {
-    const defaultSize = availableSizes[0]?.size ?? 'M';
-    setRoster([...roster, { playerName: '', jerseyNumber: '', size: defaultSize }]);
+    setRoster([...roster, { playerName: '', jerseyNumber: '', size: defaultSize, shortSize: null }]);
+  }
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset input so same file can be selected again
+    e.target.value = '';
+
+    try {
+      const rows = await parseSpreadsheetFile(file);
+      const entries = mapRowsToRoster(rows, defaultSize);
+      setImportEntries(entries);
+      setImportFileName(file.name);
+      setImportPreviewOpen(true);
+    } catch {
+      setError('Failed to parse file. Make sure it is a valid spreadsheet.');
+    }
+  }
+
+  function handleImportConfirm() {
+    // Replace roster with imported entries (AC-10)
+    setRoster(toEditableRoster(importEntries));
+    setImportPreviewOpen(false);
+    setImportEntries([]);
+    setImportFileName('');
+  }
+
+  function handleImportCancel() {
+    // Close dialog, leave roster unchanged (AC-11)
+    setImportPreviewOpen(false);
+    setImportEntries([]);
+    setImportFileName('');
   }
 
   function removeEntry(index: number) {
@@ -86,16 +131,19 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
 
   function updateEntry(
     index: number,
-    field: 'playerName' | 'jerseyNumber' | 'size',
-    value: string,
+    field: 'playerName' | 'jerseyNumber' | 'size' | 'shortSize',
+    value: string | null,
   ) {
     setRoster(
       roster.map((entry, i) => {
         if (i !== index) return entry;
-        return {
-          ...entry,
-          [field]: field === 'size' ? (value as GarmentSize) : value,
-        };
+        if (field === 'size') {
+          return { ...entry, size: value as GarmentSize };
+        }
+        if (field === 'shortSize') {
+          return { ...entry, shortSize: value ? (value as GarmentSize) : null };
+        }
+        return { ...entry, [field]: value ?? '' };
       }),
     );
   }
@@ -110,6 +158,7 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
         playerName: r.playerName.trim(),
         jerseyNumber: r.jerseyNumber.trim() || undefined,
         size: r.size,
+        shortSize: r.shortSize,
       }));
 
     const data = { roster: filteredRoster };
@@ -141,10 +190,28 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
       <Surface className="p-6">
         <div className="mb-4 flex items-center justify-between">
           <Label className="text-base font-medium">Lineup</Label>
-          <Button type="button" variant="outline" size="sm" onClick={addEntry}>
-            <Plus className="size-3" />
-            Add player
-          </Button>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,.ods,.numbers"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileSpreadsheet className="size-3" />
+              Import from file
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={addEntry}>
+              <Plus className="size-3" />
+              Add player
+            </Button>
+          </div>
         </div>
 
         {roster.length === 0 ? (
@@ -177,6 +244,22 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    {GARMENT_SIZES.map((size) => (
+                      <SelectItem key={size} value={size}>
+                        {SIZE_LABELS[size]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={entry.shortSize ?? ''}
+                  onValueChange={(size) => updateEntry(index, 'shortSize', size || null)}
+                >
+                  <SelectTrigger className="w-24">
+                    <SelectValue placeholder="Short" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
                     {GARMENT_SIZES.map((size) => (
                       <SelectItem key={size} value={size}>
                         {SIZE_LABELS[size]}
@@ -225,6 +308,15 @@ export function RosterEditForm({ orderId, item }: RosterEditFormProps) {
           Cancel
         </Button>
       </div>
+
+      <RosterImportPreview
+        open={importPreviewOpen}
+        onOpenChange={setImportPreviewOpen}
+        entries={importEntries}
+        fileName={importFileName}
+        onConfirm={handleImportConfirm}
+        onCancel={handleImportCancel}
+      />
     </form>
   );
 }

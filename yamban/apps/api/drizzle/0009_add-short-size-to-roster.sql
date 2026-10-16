@@ -1,0 +1,1 @@
+ALTER TABLE "order_roster" ADD COLUMN "short_size" "garment_size";

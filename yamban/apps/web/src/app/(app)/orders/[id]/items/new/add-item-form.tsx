@@ -33,6 +33,7 @@ interface RosterEntry {
   playerName: string;
   jerseyNumber: string;
   size: GarmentSize;
+  shortSize: GarmentSize | null;
 }
 
 interface AddItemFormProps {
@@ -81,7 +82,7 @@ export function AddItemForm({ orderId }: AddItemFormProps) {
   }
 
   function addRosterEntry() {
-    setRoster([...roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize }]);
+    setRoster([...roster, { playerName: '', jerseyNumber: '', size: 'M' as GarmentSize, shortSize: null }]);
     setRosterExpanded(true);
   }
 

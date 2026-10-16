@@ -105,6 +105,7 @@ export const orderRoster = pgTable(
     playerName: text().notNull(),
     jerseyNumber: text(), // text: "00" and "7" are different jerseys
     size: garmentSize().notNull(),
+    shortSize: garmentSize(), // optional size for shorts
   },
   (t) => [index('order_roster_item_idx').on(t.orderItemId)],
 );
