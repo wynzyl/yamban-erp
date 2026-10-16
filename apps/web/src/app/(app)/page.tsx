@@ -72,10 +72,11 @@ export default async function DashboardPage() {
     counts.sewing +
     counts.packaging;
 
-  // Find low stock materials (available < reorder level)
+  // Find low stock materials (available < reorder level, but not out of stock)
   const lowStockItems = stockData.filter((item) => {
     if (!item.reorderLevel) return false;
-    return parseFloat(item.availableQuantity) < parseFloat(item.reorderLevel);
+    const available = parseFloat(item.availableQuantity);
+    return available > 0 && available < parseFloat(item.reorderLevel);
   });
 
   // Find out of stock materials
