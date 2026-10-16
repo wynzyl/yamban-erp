@@ -37,6 +37,7 @@ interface StageJobRow {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designFile: DesignFileInfo | null;
+  notes: string | null;
 }
 
 interface PackagingBoardProps {
@@ -171,6 +172,11 @@ function JobCard({ job }: { job: StageJobRow }) {
               {isCompleted ? 'Ready' : isInProgress ? 'In progress' : 'Pending'}
             </span>
           </div>
+
+          {/* Notes */}
+          {job.notes && (
+            <p className="mt-1.5 text-xs text-primary">{job.notes}</p>
+          )}
         </div>
 
         {/* Middle: Design thumbnail */}

@@ -49,6 +49,7 @@ export interface StageJobRow {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designFile: DesignFileInfo | null;
+  notes: string | null;
 }
 
 export interface DashboardCounts {
@@ -126,6 +127,7 @@ export class ProductionService {
         quantity: productionJobs.plannedQuantity,
         status: productionJobs.status,
         dueDate: orders.dueDate,
+        notes: orders.notes,
       })
       .from(productionJobs)
       .innerJoin(orders, eq(orders.id, productionJobs.orderId))
@@ -234,6 +236,7 @@ export class ProductionService {
         sizes: sizesByItemId.get(row.orderItemId) ?? [],
         roster: rosterByItemId.get(row.orderItemId) ?? [],
         designFile: designFileByItemId.get(row.orderItemId) ?? null,
+        notes: row.notes,
       };
     });
   }

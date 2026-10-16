@@ -21,6 +21,7 @@ interface DesignJobRow {
   hasFile: boolean;
   isReady: boolean;
   productionStatus: JobStatus;
+  notes: string | null;
 }
 
 interface DesignBoardData {

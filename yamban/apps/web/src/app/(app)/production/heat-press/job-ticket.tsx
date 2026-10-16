@@ -18,10 +18,11 @@ interface JobTicketProps {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designImageUrl?: string | null;
+  notes?: string | null;
 }
 
 export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
-  ({ customerName, productName, orderNumber, quantity, sizes, roster, designImageUrl }, ref) => {
+  ({ customerName, productName, orderNumber, quantity, sizes, roster, designImageUrl, notes }, ref) => {
     return (
       <div ref={ref} className="hidden print:block">
         <div className="border-2 border-black p-4 font-mono text-sm" style={{ width: '300px' }}>
@@ -73,6 +74,14 @@ export const JobTicket = forwardRef<HTMLDivElement, JobTicketProps>(
                   );
                 });
               })()}
+            </div>
+          )}
+
+          {/* Notes */}
+          {notes && (
+            <div className="mb-2 border-t border-black pt-2 text-xs">
+              <div className="font-bold">Notes:</div>
+              <div>{notes}</div>
             </div>
           )}
 

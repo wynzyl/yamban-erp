@@ -37,6 +37,7 @@ interface StageJobRow {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designFile: DesignFileInfo | null;
+  notes: string | null;
 }
 
 interface JobCardProps {
@@ -102,6 +103,11 @@ export function JobCard({ job }: JobCardProps) {
               {isPending ? 'Pending' : isInProgress ? 'In progress' : 'Completed'}
             </span>
           </div>
+
+          {/* Notes */}
+          {job.notes && (
+            <p className="mt-1.5 text-xs text-primary">{job.notes}</p>
+          )}
         </div>
 
         {/* Middle: Design thumbnail */}

@@ -36,6 +36,7 @@ interface StageJobRow {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designFile: DesignFileInfo | null;
+  notes: string | null;
 }
 
 export default async function PrintingPage() {

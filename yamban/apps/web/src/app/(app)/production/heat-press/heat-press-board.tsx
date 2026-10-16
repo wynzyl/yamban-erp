@@ -33,6 +33,7 @@ interface StageJobRow {
   sizes: { size: string; quantity: number }[];
   roster: RosterEntry[];
   designFile: DesignFileInfo | null;
+  notes: string | null;
 }
 
 interface HeatPressBoardProps {

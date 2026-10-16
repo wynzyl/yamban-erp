@@ -33,6 +33,7 @@ export interface DesignJobRow {
   hasFile: boolean;
   isReady: boolean;
   productionStatus: JobStatus;
+  notes: string | null;
 }
 
 export interface DesignBoard {
@@ -87,6 +88,7 @@ export class DesignService {
         assignedToName: assignee.name,
         productionStatus: productionJobs.status,
         hasFileRef: fileExists.designJobId,
+        notes: orders.notes,
       })
       .from(designJobs)
       .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
@@ -132,6 +134,7 @@ export class DesignService {
         hasFile,
         isReady,
         productionStatus: row.productionStatus,
+        notes: row.notes,
       };
 
       if (isReady) {
@@ -172,6 +175,7 @@ export class DesignService {
         assignedToId: productionJobs.assignedToId,
         assignedToName: assignee.name,
         productionStatus: productionJobs.status,
+        notes: orders.notes,
       })
       .from(designJobs)
       .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))

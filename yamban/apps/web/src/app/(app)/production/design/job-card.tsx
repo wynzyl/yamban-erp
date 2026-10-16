@@ -15,6 +15,7 @@ interface DesignJobRow {
   assignedToName: string | null;
   hasFile: boolean;
   isReady: boolean;
+  notes: string | null;
 }
 
 interface JobCardProps {
@@ -51,6 +52,11 @@ export function JobCard({ job }: JobCardProps) {
           {job.hasFile ? 'File uploaded' : 'No file'}
         </span>
       </div>
+
+      {/* Notes */}
+      {job.notes && (
+        <p className="mt-2 text-xs text-primary">{job.notes}</p>
+      )}
     </Link>
   );
 }
