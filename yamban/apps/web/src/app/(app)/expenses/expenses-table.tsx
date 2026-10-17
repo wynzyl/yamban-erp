@@ -17,6 +17,7 @@ import { Money } from '@/components/domain/money';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
+import { SortableHeader } from './sortable-header';
 
 interface ExpenseRow {
   id: string;
@@ -32,9 +33,11 @@ interface ExpenseRow {
 
 interface ExpensesTableProps {
   data: ExpenseRow[];
+  sortBy?: string;
+  sortOrder?: string;
 }
 
-export function ExpensesTable({ data }: ExpensesTableProps) {
+export function ExpensesTable({ data, sortBy, sortOrder }: ExpensesTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<ExpenseRow | null>(null);
 
@@ -52,7 +55,11 @@ export function ExpensesTable({ data }: ExpensesTableProps) {
   const columns: ColumnDef<ExpenseRow>[] = [
     {
       accessorKey: 'expenseDate',
-      header: 'Date',
+      header: () => (
+        <SortableHeader sortKey="expenseDate" currentSort={sortBy} currentOrder={sortOrder}>
+          Date
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <Link
           href={`/expenses/${row.original.id}`}
@@ -73,7 +80,11 @@ export function ExpensesTable({ data }: ExpensesTableProps) {
     },
     {
       accessorKey: 'category',
-      header: 'Category',
+      header: () => (
+        <SortableHeader sortKey="category" currentSort={sortBy} currentOrder={sortOrder}>
+          Category
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {EXPENSE_CATEGORY_LABELS[row.original.category]}
@@ -96,7 +107,11 @@ export function ExpensesTable({ data }: ExpensesTableProps) {
     },
     {
       accessorKey: 'amount',
-      header: () => <span className="block text-right">Amount</span>,
+      header: () => (
+        <SortableHeader sortKey="amount" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
+          Amount
+        </SortableHeader>
+      ),
       meta: { className: 'text-right' },
       cell: ({ row }) => <Money value={row.original.amount} />,
     },

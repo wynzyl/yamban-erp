@@ -65,6 +65,8 @@ export default async function ExpensesPage({
     categories?: string;
     search?: string;
     page?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -72,10 +74,14 @@ export default async function ExpensesPage({
   const categories = params.categories ?? '';
   const search = params.search ?? '';
   const page = params.page ?? '1';
+  const sortBy = params.sortBy;
+  const sortOrder = params.sortOrder;
 
   const qs = new URLSearchParams({ month, page });
   if (categories) qs.set('categories', categories);
   if (search) qs.set('search', search);
+  if (sortBy) qs.set('sortBy', sortBy);
+  if (sortOrder) qs.set('sortOrder', sortOrder);
 
   const data = await apiFetch<ExpenseListResponse>(`/expenses?${qs}`);
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
@@ -84,6 +90,8 @@ export default async function ExpensesPage({
     const params = new URLSearchParams({ month, page: String(p) });
     if (categories) params.set('categories', categories);
     if (search) params.set('search', search);
+    if (sortBy) params.set('sortBy', sortBy);
+    if (sortOrder) params.set('sortOrder', sortOrder);
     return `?${params}`;
   }
 
@@ -159,7 +167,7 @@ export default async function ExpensesPage({
             )}
           </EmptyState>
         ) : (
-          <ExpensesTable data={data.items} />
+          <ExpensesTable data={data.items} sortBy={sortBy} sortOrder={sortOrder} />
         )}
       </Surface>
 

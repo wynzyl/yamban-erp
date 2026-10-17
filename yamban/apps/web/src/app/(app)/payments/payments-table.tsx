@@ -11,6 +11,7 @@ import { Money } from '@/components/domain/money';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
+import { SortableHeader } from './sortable-header';
 
 interface PaymentRow {
   id: string;
@@ -27,9 +28,11 @@ interface PaymentRow {
 
 interface PaymentsTableProps {
   data: PaymentRow[];
+  sortBy?: string;
+  sortOrder?: string;
 }
 
-export function PaymentsTable({ data }: PaymentsTableProps) {
+export function PaymentsTable({ data, sortBy, sortOrder }: PaymentsTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<PaymentRow | null>(null);
 
@@ -47,7 +50,11 @@ export function PaymentsTable({ data }: PaymentsTableProps) {
   const columns: ColumnDef<PaymentRow>[] = [
     {
       accessorKey: 'paymentDate',
-      header: 'Date',
+      header: () => (
+        <SortableHeader sortKey="paymentDate" currentSort={sortBy} currentOrder={sortOrder}>
+          Date
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <Link
           href={`/payments/${row.original.id}`}
@@ -96,7 +103,11 @@ export function PaymentsTable({ data }: PaymentsTableProps) {
     },
     {
       accessorKey: 'amount',
-      header: () => <span className="block text-right">Amount</span>,
+      header: () => (
+        <SortableHeader sortKey="amount" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
+          Amount
+        </SortableHeader>
+      ),
       meta: { className: 'text-right' },
       cell: ({ row }) => <Money value={row.original.amount} />,
     },

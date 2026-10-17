@@ -22,6 +22,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
 import { cn } from '@/lib/utils';
+import { SortableHeader } from './sortable-header';
 
 interface OrderRow {
   id: string;
@@ -43,6 +44,8 @@ interface OrderRow {
 interface OrdersTableProps {
   data: OrderRow[];
   statusFilter?: string;
+  sortBy?: string;
+  sortOrder?: string;
 }
 
 function StageIndicator({
@@ -113,7 +116,7 @@ function StageIndicator({
   return <span className="text-muted-foreground">—</span>;
 }
 
-export function OrdersTable({ data, statusFilter }: OrdersTableProps) {
+export function OrdersTable({ data, statusFilter, sortBy, sortOrder }: OrdersTableProps) {
   const router = useRouter();
   const showStageDetail = statusFilter === 'IN_PRODUCTION';
   const [paymentOrder, setPaymentOrder] = useState<OrderForPayment | null>(null);
@@ -169,7 +172,11 @@ export function OrdersTable({ data, statusFilter }: OrdersTableProps) {
     },
     {
       accessorKey: 'orderDate',
-      header: 'Date',
+      header: () => (
+        <SortableHeader sortKey="orderDate" currentSort={sortBy} currentOrder={sortOrder}>
+          Date
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <span className="whitespace-nowrap text-muted-foreground">
           {formatDate(row.original.orderDate)}
@@ -178,7 +185,11 @@ export function OrdersTable({ data, statusFilter }: OrdersTableProps) {
     },
     {
       accessorKey: 'dueDate',
-      header: 'Due',
+      header: () => (
+        <SortableHeader sortKey="dueDate" currentSort={sortBy} currentOrder={sortOrder}>
+          Due
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <span className="whitespace-nowrap text-muted-foreground">
           {row.original.dueDate ? formatDate(row.original.dueDate) : '—'}
@@ -187,7 +198,11 @@ export function OrdersTable({ data, statusFilter }: OrdersTableProps) {
     },
     {
       accessorKey: 'balance',
-      header: () => <span className="block text-right">Balance</span>,
+      header: () => (
+        <SortableHeader sortKey="balance" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
+          Balance
+        </SortableHeader>
+      ),
       meta: { className: 'text-right' },
       cell: ({ row }) => {
         const o = row.original;
@@ -212,7 +227,11 @@ export function OrdersTable({ data, statusFilter }: OrdersTableProps) {
     },
     {
       accessorKey: 'total',
-      header: () => <span className="block text-right">Total</span>,
+      header: () => (
+        <SortableHeader sortKey="total" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
+          Total
+        </SortableHeader>
+      ),
       meta: { className: 'text-right' },
       cell: ({ row }) => (
         <span className="yb-money text-muted-foreground">

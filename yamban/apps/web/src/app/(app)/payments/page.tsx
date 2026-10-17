@@ -29,17 +29,26 @@ interface PaymentRow {
 export default async function PaymentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; page?: string }>;
+  searchParams: Promise<{
+    search?: string;
+    page?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }>;
 }) {
-  const { search = '', page = '1' } = await searchParams;
+  const { search = '', page = '1', sortBy, sortOrder } = await searchParams;
   const qs = new URLSearchParams({ page });
   if (search) qs.set('search', search);
+  if (sortBy) qs.set('sortBy', sortBy);
+  if (sortOrder) qs.set('sortOrder', sortOrder);
   const data = await apiFetch<Paginated<PaymentRow>>(`/payments?${qs}`);
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
 
   function getPageUrl(p: number) {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
+    if (sortBy) params.set('sortBy', sortBy);
+    if (sortOrder) params.set('sortOrder', sortOrder);
     params.set('page', String(p));
     return `?${params}`;
   }
@@ -73,7 +82,7 @@ export default async function PaymentsPage({
             )}
           </EmptyState>
         ) : (
-          <PaymentsTable data={data.items} />
+          <PaymentsTable data={data.items} sortBy={sortBy} sortOrder={sortOrder} />
         )}
       </Surface>
 

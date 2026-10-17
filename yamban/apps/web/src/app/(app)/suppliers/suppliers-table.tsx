@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
+import { SortableHeader } from './sortable-header';
 
 interface SupplierRow {
   id: string;
@@ -21,9 +22,11 @@ interface SupplierRow {
 
 interface SuppliersTableProps {
   data: SupplierRow[];
+  sortBy?: string;
+  sortOrder?: string;
 }
 
-export function SuppliersTable({ data }: SuppliersTableProps) {
+export function SuppliersTable({ data, sortBy, sortOrder }: SuppliersTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<SupplierRow | null>(null);
 
@@ -41,7 +44,11 @@ export function SuppliersTable({ data }: SuppliersTableProps) {
   const columns: ColumnDef<SupplierRow>[] = [
     {
       accessorKey: 'name',
-      header: 'Name',
+      header: () => (
+        <SortableHeader sortKey="name" currentSort={sortBy} currentOrder={sortOrder}>
+          Name
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <Link
           href={`/suppliers/${row.original.id}`}

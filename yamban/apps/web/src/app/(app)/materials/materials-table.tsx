@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
+import { SortableHeader } from './sortable-header';
 import { StockBadge } from './stock-badge';
 
 interface MaterialRow {
@@ -30,9 +31,11 @@ interface MaterialRow {
 
 interface MaterialsTableProps {
   data: MaterialRow[];
+  sortBy?: string;
+  sortOrder?: string;
 }
 
-export function MaterialsTable({ data }: MaterialsTableProps) {
+export function MaterialsTable({ data, sortBy, sortOrder }: MaterialsTableProps) {
   const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<MaterialRow | null>(null);
 
@@ -50,7 +53,11 @@ export function MaterialsTable({ data }: MaterialsTableProps) {
   const columns: ColumnDef<MaterialRow>[] = [
     {
       accessorKey: 'name',
-      header: 'Name',
+      header: () => (
+        <SortableHeader sortKey="name" currentSort={sortBy} currentOrder={sortOrder}>
+          Name
+        </SortableHeader>
+      ),
       cell: ({ row }) => {
         const m = row.original;
         return (
@@ -68,7 +75,11 @@ export function MaterialsTable({ data }: MaterialsTableProps) {
     },
     {
       accessorKey: 'category',
-      header: 'Category',
+      header: () => (
+        <SortableHeader sortKey="category" currentSort={sortBy} currentOrder={sortOrder}>
+          Category
+        </SortableHeader>
+      ),
       cell: ({ row }) => (
         <span className="text-muted-foreground">
           {MATERIAL_CATEGORY_LABELS[
@@ -79,7 +90,11 @@ export function MaterialsTable({ data }: MaterialsTableProps) {
     },
     {
       accessorKey: 'stockOnHand',
-      header: () => <span className="block text-right">Stock</span>,
+      header: () => (
+        <SortableHeader sortKey="stockOnHand" currentSort={sortBy} currentOrder={sortOrder} className="justify-end">
+          Stock
+        </SortableHeader>
+      ),
       meta: { className: 'text-right' },
       cell: ({ row }) => {
         const m = row.original;

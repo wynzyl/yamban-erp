@@ -64,13 +64,22 @@ function computeSummary(orders: OrderRow[]) {
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; payment?: string; status?: string; page?: string }>;
+  searchParams: Promise<{
+    search?: string;
+    payment?: string;
+    status?: string;
+    page?: string;
+    sortBy?: string;
+    sortOrder?: string;
+  }>;
 }) {
-  const { search = '', payment = '', status = '', page = '1' } = await searchParams;
+  const { search = '', payment = '', status = '', page = '1', sortBy, sortOrder } = await searchParams;
   const qs = new URLSearchParams({ page });
   if (search) qs.set('search', search);
   if (payment) qs.set('payment', payment);
   if (status) qs.set('status', status);
+  if (sortBy) qs.set('sortBy', sortBy);
+  if (sortOrder) qs.set('sortOrder', sortOrder);
   const data = await apiFetch<Paginated<OrderRow>>(`/orders?${qs}`);
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
 
@@ -82,6 +91,8 @@ export default async function OrdersPage({
     if (search) params.set('search', search);
     if (payment) params.set('payment', payment);
     if (status) params.set('status', status);
+    if (sortBy) params.set('sortBy', sortBy);
+    if (sortOrder) params.set('sortOrder', sortOrder);
     params.set('page', String(p));
     return `?${params}`;
   }
@@ -169,7 +180,7 @@ export default async function OrdersPage({
             )}
           </EmptyState>
         ) : (
-          <OrdersTable data={data.items} statusFilter={status} />
+          <OrdersTable data={data.items} statusFilter={status} sortBy={sortBy} sortOrder={sortOrder} />
         )}
       </Surface>
 
