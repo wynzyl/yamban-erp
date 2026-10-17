@@ -78,6 +78,13 @@
       "when": 1792135310884,
       "tag": "0010_add-roster-sizes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792218856836,
+      "tag": "0011_add-overhead-settings",
+      "breakpoints": true
     }
   ]
 }

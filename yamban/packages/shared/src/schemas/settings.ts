@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { money } from './_helpers.js';
 
 /** Unit cost for electricity (up to 14,4 precision). */
 const ratePerKwh = z
@@ -12,3 +13,16 @@ export const setElectricityRateSchema = z.object({
 });
 export type SetElectricityRateInput = z.input<typeof setElectricityRateSchema>;
 export type SetElectricityRateData = z.output<typeof setElectricityRateSchema>;
+
+/** Schema for updating the monthly overhead setting. */
+export const updateOverheadSchema = z.object({
+  monthlyAmount: money,
+});
+export type UpdateOverheadInput = z.input<typeof updateOverheadSchema>;
+export type UpdateOverheadData = z.output<typeof updateOverheadSchema>;
+
+/** Response shape for overhead settings. */
+export interface OverheadSettingsResponse {
+  monthlyAmount: string;
+  updatedAt: string;
+}

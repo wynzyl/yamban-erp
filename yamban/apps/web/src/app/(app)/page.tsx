@@ -1,11 +1,13 @@
+import type { DashboardSummary } from '@yamban/shared';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { formatDate, formatMeasure, UNIT_SUFFIX, type StockUnit } from '@yamban/shared';
-import { ArrowRight, Package, Plus, TrendingDown, TrendingUp } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, Package, Plus, TrendingDown, TrendingUp } from 'lucide-react';
 import { Money } from '@/components/domain/money';
 import { Button } from '@/components/ui/button';
 import { Surface, SurfaceBody } from '@/components/ui/surface';
 import { apiFetch } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { DashboardStats } from './dashboard-stats';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -58,10 +60,11 @@ export default async function DashboardPage() {
   const month = getCurrentMonth();
 
   // Fetch all dashboard data in parallel
-  const [counts, stockData, expenseData] = await Promise.all([
+  const [counts, stockData, expenseData, reportSummary] = await Promise.all([
     apiFetch<DashboardCounts>('/production/dashboard'),
     apiFetch<StockRow[]>('/inventory/stock'),
     apiFetch<ExpenseResponse>(`/expenses?month=${month}&pageSize=10`),
+    apiFetch<DashboardSummary>('/reports/dashboard-summary').catch(() => null),
   ]);
 
   const totalActive =
@@ -106,8 +109,115 @@ export default async function DashboardPage() {
 
       {/* Financial Summary */}
       <section className="mt-8">
-        <h2 className="mb-4 text-lg font-medium">This month</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-4 flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">This month</h2>
+          <Link
+            href="/reports/sales-summary"
+            className="flex items-center gap-1 text-sm text-primary hover:underline"
+          >
+            View reports
+            <ArrowRight className="size-4" />
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Revenue */}
+          {reportSummary && (
+            <Surface>
+              <SurfaceBody className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Revenue</p>
+                  <p className="mt-1 font-display text-2xl font-semibold">
+                    <Money value={reportSummary.revenueThisMonth} />
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {reportSummary.revenueChangePercent !== null && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-0.5',
+                          reportSummary.revenueChangePercent > 0
+                            ? 'text-success'
+                            : reportSummary.revenueChangePercent < 0
+                              ? 'text-destructive'
+                              : '',
+                        )}
+                      >
+                        {reportSummary.revenueChangePercent > 0 ? (
+                          <ArrowUp className="size-3" />
+                        ) : reportSummary.revenueChangePercent < 0 ? (
+                          <ArrowDown className="size-3" />
+                        ) : null}
+                        {Math.abs(reportSummary.revenueChangePercent).toFixed(1)}% vs last month
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <TrendingUp className="size-5 text-muted-foreground" />
+              </SurfaceBody>
+            </Surface>
+          )}
+
+          {/* Outstanding Balance */}
+          {reportSummary && (
+            <Surface>
+              <SurfaceBody className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Outstanding balance</p>
+                  <p className="mt-1 font-display text-2xl font-semibold text-partial-text">
+                    <Money value={reportSummary.outstandingTotal} />
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {reportSummary.overdueCount > 0 && (
+                      <span className="text-destructive">
+                        {reportSummary.overdueCount} overdue
+                      </span>
+                    )}
+                    {reportSummary.overdueCount === 0 && 'No overdue balances'}
+                  </p>
+                </div>
+              </SurfaceBody>
+            </Surface>
+          )}
+
+          {/* Net Profit */}
+          {reportSummary && (
+            <Surface>
+              <SurfaceBody className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Net profit</p>
+                  <p
+                    className={cn(
+                      'mt-1 font-display text-2xl font-semibold',
+                      parseFloat(reportSummary.netProfitThisMonth) < 0 && 'text-destructive',
+                    )}
+                  >
+                    <Money value={reportSummary.netProfitThisMonth} />
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {reportSummary.netProfitChangePercent !== null && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-0.5',
+                          reportSummary.netProfitChangePercent > 0
+                            ? 'text-success'
+                            : reportSummary.netProfitChangePercent < 0
+                              ? 'text-destructive'
+                              : '',
+                        )}
+                      >
+                        {reportSummary.netProfitChangePercent > 0 ? (
+                          <ArrowUp className="size-3" />
+                        ) : reportSummary.netProfitChangePercent < 0 ? (
+                          <ArrowDown className="size-3" />
+                        ) : null}
+                        {Math.abs(reportSummary.netProfitChangePercent).toFixed(1)}% vs last month
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </SurfaceBody>
+            </Surface>
+          )}
+
           {/* Expenses */}
           <Surface>
             <SurfaceBody className="flex items-start justify-between">
@@ -121,7 +231,13 @@ export default async function DashboardPage() {
               <TrendingDown className="size-5 text-muted-foreground" />
             </SurfaceBody>
           </Surface>
+        </div>
+      </section>
 
+      {/* Operations Summary */}
+      <section className="mt-8">
+        <h2 className="mb-4 text-lg font-medium">Operations</h2>
+        <div className="grid gap-4 sm:grid-cols-2">
           {/* Active Jobs */}
           <Surface>
             <SurfaceBody className="flex items-start justify-between">
@@ -154,7 +270,6 @@ export default async function DashboardPage() {
                   )}
                 </p>
               </div>
-              <TrendingUp className="size-5 text-muted-foreground" />
             </SurfaceBody>
           </Surface>
         </div>

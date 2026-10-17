@@ -1,8 +1,9 @@
 import { formatMoney, type OrderStatus, type Paginated } from '@yamban/shared';
-import { TrendingDown, TrendingUp } from 'lucide-react';
+import { Settings, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Pagination } from '@/components/ui/pagination';
 import { Surface } from '@/components/ui/surface';
@@ -36,7 +37,14 @@ export default async function CostingPage({
 
   return (
     <div className="max-w-6xl">
-      <PageHeader title="Order profitability" count={data.total} />
+      <PageHeader title="Order profitability" count={data.total}>
+        <Button asChild variant="outline">
+          <Link href="/costing/settings">
+            <Settings className="size-4" />
+            Settings
+          </Link>
+        </Button>
+      </PageHeader>
 
       <Surface className="mt-6 overflow-hidden">
         <Table>

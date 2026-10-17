@@ -20,6 +20,7 @@ import { PaymentsModule } from './payments/payments.module.js';
 import { ProductionModule } from './production/production.module.js';
 import { ProductsModule } from './products/products.module.js';
 import { PurchaseRequestsModule } from './purchase-requests/purchase-requests.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SuppliersModule } from './suppliers/suppliers.module.js';
 import { TestValidationController } from './common/controllers/test-validation.controller.js';
@@ -46,6 +47,7 @@ import { UsersModule } from './users/users.module.js';
     ProductionModule,
     ProductsModule,
     PurchaseRequestsModule,
+    ReportsModule,
     SettingsModule,
     SuppliersModule,
   ],

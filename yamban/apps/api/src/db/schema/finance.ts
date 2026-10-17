@@ -31,3 +31,18 @@ export const expenses = pgTable(
     check('expenses_amount_pos', sql`${t.amount} > 0`),
   ],
 );
+
+/**
+ * Single row table for monthly overhead (rent, utilities, etc.) used in
+ * profit margin calculations. Overhead is allocated equally across all
+ * orders confirmed in a month.
+ */
+export const overheadSettings = pgTable(
+  'overhead_settings',
+  {
+    id: id(),
+    monthlyAmount: money().notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [check('overhead_settings_amount_nonneg', sql`${t.monthlyAmount} >= 0`)],
+);

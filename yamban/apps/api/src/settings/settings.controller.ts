@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Put } from '@nestjs/common';
 import {
   type SetElectricityRateData,
   setElectricityRateSchema,
   type UpdateDefaultLaborRatesData,
   updateDefaultLaborRatesSchema,
+  type UpdateOverheadData,
+  updateOverheadSchema,
 } from '@yamban/shared';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
@@ -47,5 +49,17 @@ export class SettingsController {
     @Body(new ZodValidationPipe(updateDefaultLaborRatesSchema)) body: UpdateDefaultLaborRatesData,
   ) {
     return this.settings.updateDefaultLaborRates(body);
+  }
+
+  @Get('overhead')
+  @Roles('OWNER')
+  getOverhead() {
+    return this.settings.getOverhead();
+  }
+
+  @Put('overhead')
+  @Roles('OWNER')
+  setOverhead(@Body(new ZodValidationPipe(updateOverheadSchema)) body: UpdateOverheadData) {
+    return this.settings.setOverhead(body);
   }
 }

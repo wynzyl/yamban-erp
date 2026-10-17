@@ -1,9 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import type { ProductionStage, SetElectricityRateData, UpdateDefaultLaborRatesData } from '@yamban/shared';
+import type {
+  OverheadSettingsResponse,
+  ProductionStage,
+  SetElectricityRateData,
+  UpdateDefaultLaborRatesData,
+  UpdateOverheadData,
+} from '@yamban/shared';
 import { desc, eq, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
-import { defaultLaborRates, electricityRates, products, productStages } from '../db/schema/index.js';
+import {
+  defaultLaborRates,
+  electricityRates,
+  overheadSettings,
+  products,
+  productStages,
+} from '../db/schema/index.js';
 
 export interface ElectricityRateRow {
   id: string;
@@ -166,5 +178,48 @@ export class SettingsService {
     }
 
     return results;
+  }
+
+  /** Get the current monthly overhead setting. Returns null if not configured. */
+  async getOverhead(): Promise<OverheadSettingsResponse | null> {
+    const [row] = await this.db
+      .select({
+        monthlyAmount: overheadSettings.monthlyAmount,
+        updatedAt: overheadSettings.updatedAt,
+      })
+      .from(overheadSettings)
+      .limit(1);
+
+    if (!row) return null;
+    return {
+      monthlyAmount: row.monthlyAmount,
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  /** Set the monthly overhead amount. Creates or updates the single row. */
+  async setOverhead(data: UpdateOverheadData): Promise<OverheadSettingsResponse> {
+    const existing = await this.db.select({ id: overheadSettings.id }).from(overheadSettings).limit(1);
+
+    let row: { monthlyAmount: string; updatedAt: Date };
+    if (existing.length > 0) {
+      const [updated] = await this.db
+        .update(overheadSettings)
+        .set({ monthlyAmount: data.monthlyAmount })
+        .where(eq(overheadSettings.id, existing[0]!.id))
+        .returning({ monthlyAmount: overheadSettings.monthlyAmount, updatedAt: overheadSettings.updatedAt });
+      row = updated!;
+    } else {
+      const [inserted] = await this.db
+        .insert(overheadSettings)
+        .values({ monthlyAmount: data.monthlyAmount })
+        .returning({ monthlyAmount: overheadSettings.monthlyAmount, updatedAt: overheadSettings.updatedAt });
+      row = inserted!;
+    }
+
+    return {
+      monthlyAmount: row.monthlyAmount,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 }

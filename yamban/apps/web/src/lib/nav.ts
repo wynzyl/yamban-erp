@@ -78,11 +78,14 @@ export const NAV: NavGroup[] = [
   {
     label: 'Reports',
     items: [
-      { label: 'Sales', href: '/reports/sales', phase: 7, icon: BarChart3 },
-      { label: 'Inventory', href: '/reports/inventory', phase: 7, icon: BarChart3 },
-      { label: 'Production', href: '/reports/production', phase: 7, icon: BarChart3 },
-      { label: 'Order profitability', href: '/reports/profitability', phase: 7, icon: BarChart3 },
-      { label: 'Expenses', href: '/reports/expenses', phase: 7, icon: BarChart3 },
+      { label: 'Sales summary', href: '/reports/sales-summary', phase: 7, icon: BarChart3 },
+      { label: 'Sales by customer', href: '/reports/sales-by-customer', phase: 7, icon: BarChart3 },
+      { label: 'Sales by product', href: '/reports/sales-by-product', phase: 7, icon: BarChart3 },
+      { label: 'Outstanding balances', href: '/reports/outstanding-balances', phase: 7, icon: BarChart3 },
+      { label: 'Income vs expense', href: '/reports/income-expense', phase: 7, icon: BarChart3 },
+      { label: 'Expense breakdown', href: '/reports/expense-breakdown', phase: 7, icon: BarChart3 },
+      { label: 'Profit margins', href: '/reports/profit-margins', phase: 7, icon: BarChart3 },
+      { label: 'Cash flow', href: '/reports/cash-flow', phase: 7, icon: BarChart3 },
     ],
   },
 ];
