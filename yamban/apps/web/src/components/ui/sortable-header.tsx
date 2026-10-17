@@ -5,23 +5,21 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';
 import { cn } from '@/lib/utils';
 
-type SortKey = 'name' | 'location' | 'createdAt' | 'balance';
-
-interface SortableHeaderProps {
-  sortKey: SortKey;
+interface SortableHeaderProps<T extends string = string> {
+  sortKey: T;
   currentSort?: string;
   currentOrder?: string;
   children: React.ReactNode;
   className?: string;
 }
 
-export function SortableHeader({
+export function SortableHeader<T extends string>({
   sortKey,
   currentSort,
   currentOrder,
   children,
   className,
-}: SortableHeaderProps) {
+}: SortableHeaderProps<T>) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();

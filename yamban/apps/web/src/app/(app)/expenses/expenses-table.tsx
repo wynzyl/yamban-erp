@@ -17,7 +17,7 @@ import { Money } from '@/components/domain/money';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { DataTableRowActions } from '@/components/ui/data-table-row-actions';
-import { SortableHeader } from './sortable-header';
+import { SortableHeader } from '@/components/ui/sortable-header';
 
 interface ExpenseRow {
   id: string;
