@@ -22,6 +22,8 @@ nul
 # Logs
 *.log
 .playwright-mcp/
+test-results/
+test-files/
 
 # Lock files at root (using pnpm in yamban)
 package-lock.json
