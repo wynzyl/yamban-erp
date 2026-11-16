@@ -22,7 +22,7 @@ export function buildServices(db: Database) {
     transitions,
     files,
     orders: new OrdersService(db, costing),
-    production: new ProductionService(db, costing, inventory, transitions),
+    production: new ProductionService(db, transitions),
     design: new DesignService(db, files, transitions),
   };
 }

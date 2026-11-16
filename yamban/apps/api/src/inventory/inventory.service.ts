@@ -7,7 +7,7 @@ import type {
   RecordWasteData,
   ProcessReturnData,
 } from '@yamban/shared';
-import { and, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { parseDecimal, toFixedDecimal } from '../common/utils/index.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
@@ -298,56 +298,60 @@ export class InventoryService {
     });
   }
 
-  /** Consume materials when a production stage starts */
+  /**
+   * Deducts the stage's materials for one order item, inside the caller's transaction.
+   * Lines are claimed with `UPDATE … WHERE consumed_at IS NULL RETURNING`, so each
+   * `order_materials` line is deducted at most once, however many callers race.
+   * Only JobTransitions calls this (when a job enters IN_PROGRESS).
+   * Returns the number of lines consumed.
+   */
   async consumeMaterialsForStage(
+    tx: Database,
     orderItemId: string,
     stage: ProductionStage,
-    createdById?: string,
-  ): Promise<void> {
-    // Get all unconsumed materials for this stage
-    const materialsToConsume = await this.db
-      .select({
-        id: orderMaterials.id,
-        materialId: orderMaterials.materialId,
-        totalQuantity: orderMaterials.totalQuantity,
-        unitCost: orderMaterials.unitCost,
-        orderId: orders.id,
-      })
-      .from(orderMaterials)
-      .innerJoin(orderItems, eq(orderItems.id, orderMaterials.orderItemId))
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    createdById?: string | null,
+  ): Promise<number> {
+    const claimed = await tx
+      .update(orderMaterials)
+      .set({ consumedAt: new Date() })
       .where(
         and(
           eq(orderMaterials.orderItemId, orderItemId),
           eq(orderMaterials.stage, stage),
-          sql`${orderMaterials.consumedAt} IS NULL`,
+          isNull(orderMaterials.consumedAt),
         ),
-      );
+      )
+      .returning({
+        materialId: orderMaterials.materialId,
+        totalQuantity: orderMaterials.totalQuantity,
+        unitCost: orderMaterials.unitCost,
+      });
 
-    if (materialsToConsume.length === 0) return;
+    if (claimed.length === 0) return 0;
 
-    await this.db.transaction(async (tx) => {
-      for (const mat of materialsToConsume) {
-        // Create consumption transaction (negative quantity)
-        await tx.insert(inventoryTransactions).values({
-          materialId: mat.materialId,
-          type: 'ORDER_CONSUMPTION',
-          quantity: `-${mat.totalQuantity}`, // Negative for consumption
-          unitCost: mat.unitCost,
-          orderId: mat.orderId,
-          createdById: createdById ?? null,
-        });
+    const [item] = await tx
+      .select({ orderId: orderItems.orderId })
+      .from(orderItems)
+      .where(eq(orderItems.id, orderItemId))
+      .limit(1);
 
-        // Mark as consumed
-        await tx
-          .update(orderMaterials)
-          .set({ consumedAt: new Date() })
-          .where(eq(orderMaterials.id, mat.id));
+    // One ledger row per claimed line (negative quantity = stock out)
+    await tx.insert(inventoryTransactions).values(
+      claimed.map((line) => ({
+        materialId: line.materialId,
+        type: 'ORDER_CONSUMPTION' as const,
+        quantity: `-${line.totalQuantity}`,
+        unitCost: line.unitCost,
+        orderId: item?.orderId ?? null,
+        createdById: createdById ?? null,
+      })),
+    );
 
-        // Update stock cache
-        await this.updateStockCache(tx, mat.materialId);
-      }
-    });
+    // Sorted, so concurrent consumers lock materials rows in the same order
+    for (const materialId of [...new Set(claimed.map((l) => l.materialId))].sort()) {
+      await this.updateStockCache(tx, materialId);
+    }
+    return claimed.length;
   }
 
   /** Record manual adjustment */
@@ -456,8 +460,14 @@ export class InventoryService {
     });
   }
 
-  /** Update the stockOnHand cache by summing all transactions */
+  /**
+   * Update the stockOnHand cache by summing all transactions.
+   * Locks the material row first, so the sum runs after any concurrent writer of the same
+   * material has committed and the cache cannot be overwritten with a stale total.
+   */
   private async updateStockCache(tx: Database, materialId: string): Promise<void> {
+    await tx.select({ id: materials.id }).from(materials).where(eq(materials.id, materialId)).for('update');
+
     const [result] = await tx
       .select({
         total: sql<string>`COALESCE(SUM(${inventoryTransactions.quantity}), '0')`,

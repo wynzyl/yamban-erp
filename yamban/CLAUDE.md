@@ -21,7 +21,7 @@ npm run build                         # Build all (shared first)
 npm run typecheck                     # Type-check all workspaces
 npm run lint                          # Lint all workspaces
 npm run test                          # Run all tests
-npm run test -w @yamban/api           # Run API tests only
+npm run test -w @yamban/api           # Run API tests only (integration tests need db:up; they use yamban_test)
 
 # Database (Postgres in Docker)
 npm run db:up                         # Start Postgres container
@@ -70,6 +70,9 @@ Browser only talks to Next.js origin, so cookies are first-party (`SameSite=Lax`
 - **Stock never changes directly.** Write an `inventory_transactions` row; `materials.stock_on_hand`
   is a cache of that ledger. Deduct when the stage that uses a material starts, once per
   `order_materials` line (`consumed_at`).
+- **Job status has one writer.** `production/job-transitions.service.ts` (`JobTransitions`) is the
+  only code that changes `production_jobs.status` or moves an order to IN_PRODUCTION/READY. It
+  enforces stage order, the Printing down-payment gate and consumption. Call it; never update jobs directly.
 - **Order snapshots.** Recipes, machine minutes and the electricity rate are copied onto the
   order at confirmation. Never read the live recipe for an existing order.
 - **Next.js 16:** `params` and `searchParams` are Promises; `cookies()` is async; request
