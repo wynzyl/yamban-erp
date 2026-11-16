@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { ProductionModule } from '../production/production.module.js';
 import { DesignController } from './design.controller.js';
 import { DesignService } from './design.service.js';
 import { FilesController } from './files.controller.js';
@@ -12,6 +13,7 @@ import { StaticFilesController } from './static-files.controller.js';
     MulterModule.register({
       storage: memoryStorage(),
     }),
+    ProductionModule,
   ],
   controllers: [DesignController, FilesController, StaticFilesController],
   providers: [DesignService, FilesService],

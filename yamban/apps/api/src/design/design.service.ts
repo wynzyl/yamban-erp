@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import type { JobStatus, UpdateDesignJobData, AssignDesignJobData } from '@yamban/shared';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -13,6 +13,7 @@ import {
   products,
   users,
 } from '../db/schema/index.js';
+import { JobTransitions } from '../production/job-transitions.service.js';
 import { FilesService } from './files.service.js';
 
 export interface DesignJobRow {
@@ -53,6 +54,7 @@ export class DesignService {
   constructor(
     @InjectDb() private readonly db: Database,
     @Inject(forwardRef(() => FilesService)) private readonly files: FilesService,
+    private readonly transitions: JobTransitions,
   ) {}
 
   async listBoard(): Promise<DesignBoard> {
@@ -254,56 +256,25 @@ export class DesignService {
     return updated!;
   }
 
-  /** Mark design job ready for print (completes DESIGN stage, starts PRINTING) */
-  async markReady(designJobId: string) {
-    // Check file exists
+  /**
+   * Mark design job ready for print: completes the DESIGN job (starting it first if nobody
+   * pressed start) and starts PRINTING through JobTransitions, which checks the down payment
+   * and deducts the printing materials. Without a payment, PRINTING stays PENDING.
+   */
+  async markReady(designJobId: string, userId?: string) {
     const file = await this.files.getFile(designJobId);
     if (!file) {
       throw new BadRequestException('Upload a design file first.');
     }
 
-    // Get the production job and order item info
     const [designJob] = await this.db
-      .select({
-        productionJobId: designJobs.productionJobId,
-        orderItemId: productionJobs.orderItemId,
-        status: productionJobs.status,
-      })
+      .select({ productionJobId: designJobs.productionJobId })
       .from(designJobs)
-      .innerJoin(productionJobs, eq(productionJobs.id, designJobs.productionJobId))
       .where(eq(designJobs.id, designJobId))
       .limit(1);
-
     if (!designJob) throw new NotFoundException('Design job not found.');
 
-    // Idempotent: if already completed, return success
-    if (designJob.status === 'COMPLETED') {
-      return { success: true, alreadyReady: true };
-    }
-
-    // Mark DESIGN production job as COMPLETED
-    await this.db
-      .update(productionJobs)
-      .set({
-        status: 'COMPLETED',
-        completedAt: new Date(),
-      })
-      .where(eq(productionJobs.id, designJob.productionJobId));
-
-    // Start PRINTING stage for this order item if it exists
-    await this.db
-      .update(productionJobs)
-      .set({
-        status: 'IN_PROGRESS',
-        startedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(productionJobs.orderItemId, designJob.orderItemId),
-          eq(productionJobs.stage, 'PRINTING'),
-        ),
-      );
-
-    return { success: true };
+    const result = await this.transitions.complete(designJob.productionJobId, { userId, startIfPending: true });
+    return result.alreadyCompleted ? { ...result, alreadyReady: true } : result;
   }
 }

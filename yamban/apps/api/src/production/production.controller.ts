@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { PRODUCTION_STAGES, type ProductionStage, startJobSchema } from '@yamban/shared';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ProductionService } from './production.service.js';
 
@@ -25,13 +26,14 @@ export class ProductionController {
   start(
     @Param('id') id: string,
     @Body(new ZodValidationPipe(startJobSchema)) data: ReturnType<typeof startJobSchema.parse>,
+    @CurrentUser('id') userId: string,
   ) {
-    return this.production.startJob(id, data);
+    return this.production.startJob(id, data, userId);
   }
 
   @Patch('jobs/:id/complete')
-  complete(@Param('id') id: string) {
-    return this.production.completeJob(id);
+  complete(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.production.completeJob(id, userId);
   }
 
   @Get('ready')

@@ -3,7 +3,6 @@ import type { JobStatus, ProductionStage, StartJobData } from '@yamban/shared';
 import { PRODUCTION_STAGES } from '@yamban/shared';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { parseDecimal, toFixedDecimal } from '../common/utils/index.js';
-import { CostingService } from '../costing/costing.service.js';
 import type { Database } from '../db/client.js';
 import { InjectDb } from '../db/database.module.js';
 import {
@@ -18,7 +17,7 @@ import {
   productionJobs,
   products,
 } from '../db/schema/index.js';
-import { InventoryService } from '../inventory/inventory.service.js';
+import { JobTransitions } from './job-transitions.service.js';
 
 export interface RosterEntry {
   playerName: string;
@@ -79,8 +78,7 @@ export interface ReadyOrderRow {
 export class ProductionService {
   constructor(
     @InjectDb() private readonly db: Database,
-    private readonly costingService: CostingService,
-    private readonly inventoryService: InventoryService,
+    private readonly transitions: JobTransitions,
   ) {}
 
   /** List jobs for a specific production stage */
@@ -329,180 +327,14 @@ export class ProductionService {
     };
   }
 
-  /** Start a job (set to IN_PROGRESS) with payment check for printing */
-  async startJob(jobId: string, data: StartJobData) {
-    const [job] = await this.db
-      .select({
-        id: productionJobs.id,
-        stage: productionJobs.stage,
-        status: productionJobs.status,
-        orderId: productionJobs.orderId,
-      })
-      .from(productionJobs)
-      .where(eq(productionJobs.id, jobId))
-      .limit(1);
-
-    if (!job) throw new NotFoundException('Job not found.');
-    if (job.status !== 'PENDING') {
-      throw new BadRequestException('Job is not in pending status.');
-    }
-
-    // For PRINTING stage, check payment
-    if (job.stage === 'PRINTING') {
-      const [paymentCheck] = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(payments)
-        .where(eq(payments.orderId, job.orderId));
-
-      const hasPayment = (paymentCheck?.count ?? 0) > 0;
-
-      if (!hasPayment && !data.acknowledgeNoPayment) {
-        throw new BadRequestException(
-          JSON.stringify({ requiresAcknowledgement: true, message: 'No down payment recorded.' }),
-        );
-      }
-    }
-
-    // Consume materials for this stage
-    const [jobWithItem] = await this.db
-      .select({ orderItemId: productionJobs.orderItemId })
-      .from(productionJobs)
-      .where(eq(productionJobs.id, jobId))
-      .limit(1);
-
-    if (jobWithItem) {
-      await this.inventoryService.consumeMaterialsForStage(
-        jobWithItem.orderItemId,
-        job.stage,
-      );
-    }
-
-    // Update job to IN_PROGRESS
-    await this.db
-      .update(productionJobs)
-      .set({
-        status: 'IN_PROGRESS',
-        startedAt: new Date(),
-      })
-      .where(eq(productionJobs.id, jobId));
-
-    return { success: true };
+  /** Start a job. All rules (stage order, down payment, consumption) live in JobTransitions. */
+  startJob(jobId: string, data: StartJobData, userId?: string) {
+    return this.transitions.start(jobId, { acknowledgeNoPayment: data.acknowledgeNoPayment, userId });
   }
 
-  /** Complete a job and start the next stage if applicable */
-  async completeJob(jobId: string) {
-    const [job] = await this.db
-      .select({
-        id: productionJobs.id,
-        stage: productionJobs.stage,
-        status: productionJobs.status,
-        orderItemId: productionJobs.orderItemId,
-        orderId: productionJobs.orderId,
-      })
-      .from(productionJobs)
-      .where(eq(productionJobs.id, jobId))
-      .limit(1);
-
-    if (!job) throw new NotFoundException('Job not found.');
-
-    // Idempotent: if already completed, return success
-    if (job.status === 'COMPLETED') {
-      return { success: true, alreadyCompleted: true };
-    }
-
-    // Mark current job as COMPLETED
-    await this.db
-      .update(productionJobs)
-      .set({
-        status: 'COMPLETED',
-        completedAt: new Date(),
-      })
-      .where(eq(productionJobs.id, jobId));
-
-    // Find and start next stage
-    const currentStageIndex = PRODUCTION_STAGES.indexOf(job.stage);
-    if (currentStageIndex < PRODUCTION_STAGES.length - 1) {
-      const nextStage = PRODUCTION_STAGES[currentStageIndex + 1];
-
-      // Update next stage job to IN_PROGRESS
-      await this.db
-        .update(productionJobs)
-        .set({
-          status: 'IN_PROGRESS',
-          startedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(productionJobs.orderItemId, job.orderItemId),
-            eq(productionJobs.stage, nextStage!),
-            eq(productionJobs.status, 'PENDING'),
-          ),
-        );
-    }
-
-    // If PACKAGING (last stage) completed, check if all items are packaged
-    // and update order status to READY
-    if (job.stage === 'PACKAGING') {
-      // Count total PACKAGING jobs for this order
-      const [totalCount] = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(productionJobs)
-        .where(
-          and(
-            eq(productionJobs.orderId, job.orderId),
-            eq(productionJobs.stage, 'PACKAGING'),
-          ),
-        );
-
-      // Count completed PACKAGING jobs for this order
-      const [completedCount] = await this.db
-        .select({ count: sql<number>`count(*)` })
-        .from(productionJobs)
-        .where(
-          and(
-            eq(productionJobs.orderId, job.orderId),
-            eq(productionJobs.stage, 'PACKAGING'),
-            eq(productionJobs.status, 'COMPLETED'),
-          ),
-        );
-
-      // If all packaging jobs are completed, update order status to READY and compute actual costs
-      if (totalCount?.count === completedCount?.count) {
-        await this.db.transaction(async (tx) => {
-          // Get the electricity rate from the order
-          const [orderData] = await tx
-            .select({ electricityRatePerKwh: orders.electricityRatePerKwh })
-            .from(orders)
-            .where(eq(orders.id, job.orderId))
-            .limit(1);
-
-          // Compute actual costs
-          const costs = await this.costingService.computeActualCosts(
-            job.orderId,
-            orderData?.electricityRatePerKwh ?? null,
-            tx,
-          );
-
-          // Update order with status and actual costs
-          await tx
-            .update(orders)
-            .set({
-              status: 'READY',
-              actualMaterialCost: costs.materialCost.toFixed(2),
-              actualElectricityCost: costs.electricityCost.toFixed(2),
-              actualLaborCost: costs.laborCost.toFixed(2),
-            })
-            .where(
-              and(
-                eq(orders.id, job.orderId),
-                eq(orders.status, 'IN_PRODUCTION'),
-              ),
-            );
-        });
-      }
-    }
-
-    return { success: true };
+  /** Complete a job; the next stage starts and the order becomes READY through JobTransitions. */
+  completeJob(jobId: string, userId?: string) {
+    return this.transitions.complete(jobId, { userId });
   }
 
   /** List orders ready for pickup (all PACKAGING jobs completed, not yet released) */
